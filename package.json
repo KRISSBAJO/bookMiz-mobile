@@ -1,0 +1,48 @@
+{
+  "name": "customer-agent-app",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node ./node_modules/expo/bin/cli start --host lan --port 8088",
+    "start:localhost": "node ./node_modules/expo/bin/cli start --host localhost --port 8088",
+    "start:tunnel": "node ./node_modules/expo/bin/cli start --tunnel --clear --port 8088",
+    "android": "node ./node_modules/expo/bin/cli start --android --host lan --port 8088",
+    "ios": "node ./node_modules/expo/bin/cli start --ios --host lan --port 8088",
+    "web": "node ./node_modules/expo/bin/cli start --web --port 8088",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/harden-build-dependencies.cjs",
+    "test:security": "node --test tests/build-security.test.cjs"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-community/datetimepicker": "9.1.0",
+    "expo": "~57.0.28",
+    "expo-constants": "~57.0.21",
+    "expo-font": "~57.0.4",
+    "expo-linking": "~57.0.12",
+    "expo-router": "~57.0.26",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.10",
+    "expo-status-bar": "~57.0.1",
+    "expo-web-browser": "~57.0.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "babel-preset-expo": "~57.0.15",
+    "react-test-renderer": "19.2.3",
+    "typescript": "~6.0.3"
+  },
+  "private": true,
+  "overrides": {
+    "decode-uri-component": "0.5.0",
+    "uuid": "11.1.1"
+  }
+}

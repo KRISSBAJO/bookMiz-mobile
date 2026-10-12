@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "BookMiz",
+    "slug": "bookmiz-customer-agent",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/bookmiz/logo.png",
+    "scheme": "bookmizcustomeragent",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/bookmiz/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#132849"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bookmiz.customeragent"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/bookmiz/logo.png",
+        "backgroundColor": "#132849"
+      },
+      "package": "com.bookmiz.customeragent",
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
