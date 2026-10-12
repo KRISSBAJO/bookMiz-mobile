@@ -60,7 +60,7 @@ export function NativeBookingScreen() {
     if (missing) { setError(`Answer "${String(missing.label)}" before booking.`); return; }
     setBusy(true); setError(null);
     try {
-      const result = await createCustomerBooking({ providerId: profile.provider.id, serviceId: service.id, startsAt: selected.startAt, assignedStaffId: selected.staffOptions[0]?.staffMemberId, locationId: selected.locationId, channel: channel || service.defaultChannel, firstName: session.user.firstName, lastName: session.user.lastName, email: session.user.email, phone: session.profile?.phone || undefined, notes, intakeResponses: service.intakeFields.filter(field => intake[String(field.id)] !== undefined).map(field => ({ fieldId: field.id, label: field.label, type: field.type, value: intake[String(field.id)] })), requestedDocumentLabels: service.requiredDocumentLabels });
+      const result = await createCustomerBooking({ providerId: profile.provider.id, serviceId: service.id, startsAt: selected.startAt, assignedStaffId: selected.staffOptions?.[0]?.staffMemberId, locationId: selected.locationId, channel: channel || service.defaultChannel, firstName: session.user.firstName, lastName: session.user.lastName, email: session.user.email, phone: session.profile?.phone || undefined, notes, intakeResponses: service.intakeFields.filter(field => intake[String(field.id)] !== undefined).map(field => ({ fieldId: field.id, label: field.label, type: field.type, value: intake[String(field.id)] })), requestedDocumentLabels: service.requiredDocumentLabels });
       setCreatedId(result.id);
       if (result.payment?.authorizationUrl) {
         const target = new URL(result.payment.authorizationUrl);
