@@ -1,4 +1,5 @@
 import { mobileEnv } from "@/src/lib/mobile-env";
+import { requestWithTimeout } from "@/src/lib/api/fetch-with-timeout";
 import type {
   ApiErrorEnvelope,
   ApiSuccessEnvelope,
@@ -52,9 +53,7 @@ async function parseResponse<T>(response: Response) {
   if (!response.ok) {
     if (__DEV__) {
       console.warn("[bookmiz-mobile] api error response", {
-        url: response.url,
         status: response.status,
-        payload,
       });
     }
 
@@ -87,7 +86,7 @@ async function refreshSessionInternal() {
   }
 
   if (!refreshPromise) {
-    refreshPromise = fetch(`${mobileEnv.identityApiUrl}/auth/mobile/refresh`, {
+    refreshPromise = requestWithTimeout(`${mobileEnv.identityApiUrl}/auth/mobile/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -96,8 +95,7 @@ async function refreshSessionInternal() {
       body: JSON.stringify({
         refreshToken: authTokens.refreshToken,
       }),
-    })
-      .then((response) => parseResponse<AuthResponseData>(response))
+    }, parseResponse<AuthResponseData>)
       .then(async (data) => {
         await setAuthTokens({
           accessToken: data.session.accessToken,
@@ -135,14 +133,14 @@ export async function requestJson<T>(
     requestHeaders.set("Authorization", `Bearer ${authTokens.accessToken}`);
   }
 
-  const response = await fetch(url, {
+  const result = await requestWithTimeout<{ data: T } | { unauthorized: true }>(url, {
     ...init,
     headers: requestHeaders,
+  }, async response => {
+    if (auth && retryOnUnauthorized && response.status === 401) return { unauthorized: true } as const;
+    return { data: await parseResponse<T>(response) };
   });
-
-  if (!(auth && retryOnUnauthorized) || response.status !== 401) {
-    return parseResponse<T>(response);
-  }
+  if ("data" in result) return result.data;
 
   await refreshSessionInternal();
 
@@ -154,10 +152,8 @@ export async function requestJson<T>(
     retryHeaders.set("Authorization", `Bearer ${authTokens.accessToken}`);
   }
 
-  const retryResponse = await fetch(url, {
+  return requestWithTimeout(url, {
     ...init,
     headers: retryHeaders,
-  });
-
-  return parseResponse<T>(retryResponse);
+  }, parseResponse<T>);
 }

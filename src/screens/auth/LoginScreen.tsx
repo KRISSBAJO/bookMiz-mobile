@@ -11,7 +11,7 @@ import { tokens } from "@/src/theme/tokens";
 export function LoginScreen() {
   const router = useRouter();
   const session = useSession();
-  const [email, setEmail] = useState("maya@bookmiz.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 

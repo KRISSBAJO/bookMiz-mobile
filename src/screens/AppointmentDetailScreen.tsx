@@ -563,7 +563,7 @@ export function AppointmentDetailScreen() {
           >
             {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
 
-            {booking.paymentStatus ? <Text>Payment: {booking.paymentStatus.toLowerCase().replaceAll('_', ' ')}{booking.paymentMode === 'test' ? ' (sandbox)' : ''}</Text> : null}
+            <Text accessibilityRole="text">Payment: {bookingPaymentLabel(booking)}{booking.paymentMode === 'test' ? ' (sandbox)' : ''}</Text>
             <View style={styles.metricsRow}>
               <View style={styles.metricCard}>
                 <Text style={styles.metricLabel}>When</Text>
@@ -634,7 +634,6 @@ export function AppointmentDetailScreen() {
 
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Booking details</Text>
-              <Text accessibilityRole="text" style={styles.panelSubtitle}>Payment: {bookingPaymentLabel(booking)}{booking.paymentMode === "test" ? " · Sandbox" : ""}</Text>
               <View style={styles.detailGrid}>
                 <View style={styles.detailCard}>
                   <Text style={styles.detailLabel}>Provider</Text>
