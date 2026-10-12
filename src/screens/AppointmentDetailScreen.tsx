@@ -943,14 +943,14 @@ export function AppointmentDetailScreen() {
                             >
                               {formatSlotLabel(slot)}
                             </Text>
-                            {slot.staffOptions.length > 1 ? (
+                            {(slot.staffOptions?.length ?? 0) > 1 ? (
                               <Text
                                 style={[
                                   styles.slotMeta,
                                   isSelected ? styles.slotMetaSelected : null,
                                 ]}
                               >
-                                {slot.staffOptions.length} team options
+                                {slot.staffOptions?.length ?? 0} team options
                               </Text>
                             ) : null}
                           </Pressable>

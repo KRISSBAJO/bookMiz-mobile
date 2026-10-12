@@ -469,7 +469,7 @@ export type PublicAvailabilitySlot = {
   startAt: string;
   endAt: string;
   locationId?: string;
-  staffOptions: PublicAvailabilityStaffOption[];
+  staffOptions?: PublicAvailabilityStaffOption[];
 };
 
 export type PublicAvailabilityResponse = {
