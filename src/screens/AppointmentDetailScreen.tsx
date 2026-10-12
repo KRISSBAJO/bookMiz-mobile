@@ -21,6 +21,7 @@ import {
   getPublicBookingAvailability,
   getPublicBookingAvailabilityMonth,
   rescheduleCustomerBooking,
+  resumeCustomerPayment,
 } from "@/src/lib/api/bookings";
 import type {
   CustomerBookingRecord,
@@ -42,6 +43,7 @@ import {
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import { bookingPaymentLabel, shouldRefreshBookingPayment } from "@/src/lib/booking-payment-display";
 import { tokens } from "@/src/theme/tokens";
+import { openBookingCheckout } from "@/src/lib/open-booking-checkout";
 
 type BookingCalendarDay = {
   value: string;
@@ -176,7 +178,19 @@ export function AppointmentDetailScreen() {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slots, setSlots] = useState<PublicAvailabilitySlot[]>([]);
   const [selectedSlotStartAt, setSelectedSlotStartAt] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"cancel" | "reschedule" | null>(null);
+  const [busyAction, setBusyAction] = useState<"cancel" | "reschedule" | "payment" | null>(null);
+
+  async function continuePayment() {
+    if (!booking || busyAction) return;
+    setBusyAction("payment"); setError(null);
+    try {
+      const payment = await resumeCustomerPayment(booking.id);
+      if (payment?.authorizationUrl) await openBookingCheckout(payment.authorizationUrl);
+      setBooking(await getCustomerBooking(booking.id));
+    } catch (reason) {
+      setError(getFriendlyApiError(reason, "Could not reopen checkout. Please try again."));
+    } finally { setBusyAction(null); }
+  }
 
   const loadBooking = useCallback(async () => {
     if (!bookingId) {
@@ -608,6 +622,11 @@ export function AppointmentDetailScreen() {
               </View>
 
               <View style={styles.actionButtons}>
+                {booking.paymentMode && booking.paymentStatus === "UNPAID" && ["PENDING", "CONFIRMED"].includes(booking.status) ? (
+                  <Pressable style={styles.primaryButton} disabled={Boolean(busyAction)} onPress={() => void continuePayment()}>
+                    <Text style={styles.primaryButtonText}>{busyAction === "payment" ? "Opening checkout…" : "Continue payment"}</Text>
+                  </Pressable>
+                ) : null}
                 {hasActiveMeetingLink(booking.meeting) ? (
                   <Pressable
                     style={styles.primaryButton}

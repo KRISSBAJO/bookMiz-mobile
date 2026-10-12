@@ -43,6 +43,10 @@ export function getCustomerBooking(bookingId: string) {
   });
 }
 
+export function resumeCustomerPayment(bookingId: string) {
+  return requestJson<CreatedMobileBooking["payment"]>(`${bookingsUrl}/customer/${bookingId}/payments/resume`, { method: "POST", auth: true });
+}
+
 export function getPublicBookingAvailability(params: {
   providerId: string;
   serviceId: string;

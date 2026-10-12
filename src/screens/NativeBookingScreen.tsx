@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getMarketplaceProvider } from "@/src/lib/api/marketplace";
 import { createCustomerBooking, getPublicBookingAvailability } from "@/src/lib/api/bookings";
 import type { MarketplaceProviderProfile, PublicAvailabilitySlot } from "@/src/lib/api/types";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import { useSession } from "@/src/store/session-context";
+import { openBookingCheckout } from "@/src/lib/open-booking-checkout";
 
 export function NativeBookingScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -63,12 +63,7 @@ export function NativeBookingScreen() {
       const result = await createCustomerBooking({ providerId: profile.provider.id, serviceId: service.id, startsAt: selected.startAt, assignedStaffId: selected.staffOptions?.[0]?.staffMemberId, locationId: selected.locationId, channel: channel || service.defaultChannel, firstName: session.user.firstName, lastName: session.user.lastName, email: session.user.email, phone: session.profile?.phone || undefined, notes, intakeResponses: service.intakeFields.filter(field => intake[String(field.id)] !== undefined).map(field => ({ fieldId: field.id, label: field.label, type: field.type, value: intake[String(field.id)] })), requestedDocumentLabels: service.requiredDocumentLabels });
       setCreatedId(result.id);
       if (result.payment?.authorizationUrl) {
-        const target = new URL(result.payment.authorizationUrl);
-        if (target.protocol !== "https:" || !["checkout.stripe.com", "checkout.paystack.com"].includes(target.hostname)) throw new Error("The booking was reserved, but its payment link could not be verified.");
-        // Navigation in the current web tab remains allowed after the async reservation.
-        // Opening a new window here can be silently blocked as a popup.
-        if (Platform.OS === "web") window.location.assign(target.toString());
-        else await WebBrowser.openBrowserAsync(target.toString());
+        await openBookingCheckout(result.payment.authorizationUrl);
       } else if (result.payment?.method === "UNAVAILABLE") setError(result.payment.message || "Your booking is reserved. Contact the provider about payment.");
     } catch (reason) { setError(getFriendlyApiError(reason, "Could not reserve this appointment.")); }
     finally { setBusy(false); }
