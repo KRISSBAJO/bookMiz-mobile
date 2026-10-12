@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getMarketplaceProvider } from "@/src/lib/api/marketplace";
 import { createCustomerBooking, getPublicBookingAvailability } from "@/src/lib/api/bookings";
@@ -65,7 +65,10 @@ export function NativeBookingScreen() {
       if (result.payment?.authorizationUrl) {
         const target = new URL(result.payment.authorizationUrl);
         if (target.protocol !== "https:" || !["checkout.stripe.com", "checkout.paystack.com"].includes(target.hostname)) throw new Error("The booking was reserved, but its payment link could not be verified.");
-        await WebBrowser.openBrowserAsync(target.toString());
+        // Navigation in the current web tab remains allowed after the async reservation.
+        // Opening a new window here can be silently blocked as a popup.
+        if (Platform.OS === "web") window.location.assign(target.toString());
+        else await WebBrowser.openBrowserAsync(target.toString());
       } else if (result.payment?.method === "UNAVAILABLE") setError(result.payment.message || "Your booking is reserved. Contact the provider about payment.");
     } catch (reason) { setError(getFriendlyApiError(reason, "Could not reserve this appointment.")); }
     finally { setBusy(false); }
