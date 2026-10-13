@@ -2,8 +2,10 @@ import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -17,6 +19,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthButton } from "@/src/components/auth/AuthButton";
+import { AuthField } from "@/src/components/auth/AuthField";
 import { Screen } from "@/src/components/Screen";
 import { SectionHeader } from "@/src/components/SectionHeader";
 import { AgentWorkbenchScreen } from "@/src/screens/AgentWorkbenchScreen";
@@ -49,10 +52,10 @@ import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
 
 const quoteFilters = [
-  { id: "ALL", label: "All requests" },
+  { id: "ALL", label: "All" },
   { id: "OPEN", label: "Open" },
   { id: "MATCHED", label: "Matched" },
-  { id: "ACCEPTED", label: "Accepted" },
+  { id: "ACCEPTED", label: "Booked" },
 ] as const;
 
 type QuoteFilterId = (typeof quoteFilters)[number]["id"];
@@ -64,9 +67,9 @@ const composerSteps: Array<{
   label: string;
   title: string;
 }> = [
-  { id: "request", label: "Request", title: "Choose a brief and describe the need" },
-  { id: "location", label: "Location", title: "Add where and when" },
-  { id: "review", label: "Review", title: "Check details and send" },
+  { id: "request", label: "Request", title: "What you need" },
+  { id: "location", label: "Location", title: "Where" },
+  { id: "review", label: "Review", title: "Check and send" },
 ];
 
 const fallbackTemplates: MarketplaceRequestTemplate[] = [
@@ -149,7 +152,7 @@ function formatRequestStatus(status: CustomerQuoteRequest["status"]) {
     case "MATCHED":
       return "Matched";
     case "ACCEPTED":
-      return "Accepted";
+      return "Booked";
     case "CANCELLED":
       return "Cancelled";
     case "EXPIRED":
@@ -494,11 +497,6 @@ export function WorkbenchScreen() {
     [city, countryCode],
   );
 
-  const unmatchedCount = requests.reduce(
-    (count, request) => count + request.matches.length,
-    0,
-  );
-
   const resetComposer = useCallback(() => {
     setComposerStep("request");
     setTemplateId("");
@@ -810,437 +808,325 @@ export function WorkbenchScreen() {
     },
   ];
 
+  const showEmpty = !isLoading && requests.length === 0;
+  const stepNumber = composerStepIndex + 1;
+
+  const footerPrimary =
+    composerStep === "request" ? (
+      <AuthButton
+        label="Continue"
+        disabled={!canContinueFromRequest}
+        onPress={() => setComposerStep("location")}
+        style={styles.footerPrimary}
+      />
+    ) : composerStep === "location" ? (
+      <AuthButton
+        label="Review"
+        disabled={!canContinueFromLocation}
+        onPress={() => setComposerStep("review")}
+        style={styles.footerPrimary}
+      />
+    ) : (
+      <AuthButton
+        label="Send request"
+        disabled={!canSubmitRequest}
+        loading={isSubmitting}
+        onPress={() => void handleCreateRequest()}
+        style={styles.footerPrimary}
+      />
+    );
+
   return (
     <>
       <Screen
-        eyebrow="Customer requests"
-        title="Quotes, requests, and next moves"
-        subtitle="Create a polished service request, review provider matches, and keep live conversations in one place."
-        contentTopOffset={24}
-        heroBottomPadding={40}
-        heroContent={
-          <View style={styles.heroMetrics}>
-            <View style={styles.heroMetricCard}>
-              <Text style={styles.heroMetricValue}>{requests.length}</Text>
-              <Text style={styles.heroMetricLabel}>requests</Text>
-            </View>
-            <View style={styles.heroMetricCard}>
-              <Text style={styles.heroMetricValue}>{unmatchedCount}</Text>
-              <Text style={styles.heroMetricLabel}>matches</Text>
-            </View>
-            <View style={styles.heroMetricCard}>
-              <Text style={styles.heroMetricValue}>{selectedRequest?.conversations.length ?? 0}</Text>
-              <Text style={styles.heroMetricLabel}>chats</Text>
-            </View>
-          </View>
-        }
+        title="Requests"
+        showBack={false}
+        refreshing={isLoading && requests.length > 0}
+        onRefresh={() => void loadWorkspace()}
       >
-        <View style={styles.panel}>
-          <View style={styles.workspaceHero}>
-            <View style={styles.workspaceHeroCopy}>
-              <Text style={styles.workspaceEyebrow}>Request concierge</Text>
-              <Text style={styles.workspaceTitle}>One place for briefs, quotes, and replies</Text>
-              <Text style={styles.workspaceBody}>
-                Start with a polished brief, then keep the request, matched providers, and live
-                conversation in a single flow.
-              </Text>
-            </View>
-            <View style={styles.workspaceMetaRail}>
-              <View style={styles.workspaceMetaCard}>
-                <Text style={styles.workspaceMetaValue}>{requests.length}</Text>
-                <Text style={styles.workspaceMetaLabel}>Open boards</Text>
-              </View>
-              <View style={styles.workspaceMetaCard}>
-                <Text style={styles.workspaceMetaValue}>{unmatchedCount}</Text>
-                <Text style={styles.workspaceMetaLabel}>Live matches</Text>
-              </View>
-              <View style={styles.workspaceMetaCard}>
-                <Text style={styles.workspaceMetaValue}>{selectedRequest?.conversations.length ?? 0}</Text>
-                <Text style={styles.workspaceMetaLabel}>Active chats</Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.actionBar}>
-            <Pressable style={styles.actionButton} onPress={() => openComposer()}>
-              <View style={styles.actionButtonIcon}>
-                <FontAwesome6 name="wand-magic-sparkles" size={14} color="#fff" />
-              </View>
-              <View style={styles.actionButtonCopy}>
-                <Text style={styles.actionButtonTitle}>Start a new request</Text>
-                <Text style={styles.actionButtonSubtitle}>Open the guided request composer</Text>
-              </View>
-              <FontAwesome6 name="arrow-right" size={14} color="rgba(255,255,255,0.82)" />
-            </Pressable>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterRail}
-            >
-              {quoteFilters.map((item) => {
-                const isActive = item.id === filter;
-                return (
-                  <Pressable
-                    key={item.id}
-                    style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
-                    onPress={() => setFilter(item.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        isActive ? styles.filterChipTextActive : null,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
+        {!showEmpty ? (
+          <AuthButton label="Start a request" icon="plus" onPress={() => openComposer()} />
+        ) : null}
 
-          <View style={styles.templatePreviewWrap}>
-            <SectionHeader
-              title="Start from a request brief"
-              subtitle="Use a tailored request pattern, then shape the details inside the mobile composer."
-            />
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.templateRail}
-            >
-              {requestTemplates.map((template) => (
-                <Pressable
-                  key={template.id}
-                  style={styles.templateCard}
-                  onPress={() => {
-                    openComposer(template.id);
-                  }}
-                >
-                  <View style={styles.templateBadgeRow}>
-                    <Text style={styles.templateBadge}>
-                      {template.serviceModel === "PROFESSIONAL" ? "Professional" : "Local"}
-                    </Text>
-                    {template.businessCategory?.name ? (
-                      <Text style={styles.templateCategory}>{template.businessCategory.name}</Text>
-                    ) : null}
-                  </View>
-                  <Text style={styles.templateTitle}>{template.name}</Text>
-                  <Text style={styles.templateBody}>{template.shortDescription}</Text>
-                  <Text style={styles.templateHint}>Open request flow</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-
-          {requests.length === 0 ? (
-            <View style={styles.emptyPanel}>
-              <Text style={styles.emptyTitle}>No requests in motion yet</Text>
-              <Text style={styles.emptyText}>
-                Create your first request and provider matches, quotes, and chats will start gathering here.
-              </Text>
-            </View>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.requestRail}
-            >
-              {requests.map((request) => {
-                const isActive = request.id === selectedRequest?.id;
-                return (
-                  <Pressable
-                    key={request.id}
-                    style={[styles.requestCard, isActive ? styles.requestCardActive : null]}
-                    onPress={() => setSelectedRequestId(request.id)}
-                  >
-                    <View style={styles.requestCardTop}>
-                      <Text style={styles.requestCardTitle}>{request.requestedServiceName}</Text>
-                      <View style={styles.statusPill}>
-                        <Text style={styles.statusPillText}>
-                          {formatRequestStatus(request.status)}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={styles.requestCardMeta}>
-                      {request.city}
-                      {request.stateCode ? `, ${request.stateCode}` : ""} · {request.matches.length} matches
-                    </Text>
-                    <Text style={styles.requestCardBody} numberOfLines={3}>
-                      {request.description}
-                    </Text>
-                    <View style={styles.requestSignalRail}>
-                      <View style={styles.requestSignalPill}>
-                        <Text style={styles.requestSignalText}>
-                          {request.matches.length} {request.matches.length === 1 ? "match" : "matches"}
-                        </Text>
-                      </View>
-                      <View style={styles.requestSignalPillMuted}>
-                        <Text style={styles.requestSignalTextMuted}>
-                          {request.desiredDate
-                            ? formatDateLabel(request.desiredDate)
-                            : "Flexible timing"}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={styles.requestCardDate}>
-                      Updated {formatDateLabel(request.updatedAt)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
-
-        <View style={styles.panel}>
-          <SectionHeader
-            title={selectedRequest ? selectedRequest.requestedServiceName : "Select a request"}
-            subtitle={
-              selectedRequest
-                ? selectedRequest.description
-                : "Choose a live request to review matches and conversations."
-            }
-          />
-          {selectedRequest ? (
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailCard}>
-                <Text style={styles.detailLabel}>Location</Text>
-                <Text style={styles.detailValue}>
-                  {selectedRequest.city}
-                  {selectedRequest.stateCode ? `, ${selectedRequest.stateCode}` : ""}
-                </Text>
-              </View>
-              <View style={styles.detailCard}>
-                <Text style={styles.detailLabel}>Date</Text>
-                <Text style={styles.detailValue}>{formatDateLabel(selectedRequest.desiredDate)}</Text>
-              </View>
-              <View style={styles.detailCard}>
-                <Text style={styles.detailLabel}>Budget</Text>
-                <Text style={styles.detailValue}>
-                  {selectedRequest.budgetMinCents || selectedRequest.budgetMaxCents
-                    ? `${formatMarketplacePrice(selectedRequest.budgetMinCents)} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents)}`
-                    : "Open budget"}
-                </Text>
-              </View>
-              <View style={styles.detailCard}>
-                <Text style={styles.detailLabel}>Conversations</Text>
-                <Text style={styles.detailValue}>
-                  {selectedRequest.conversations.length} active
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>
-              Start a request or select an existing one to review providers and messages.
+        {error && !composerOpen ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText} accessibilityRole="alert">
+              {error}
             </Text>
-          )}
-        </View>
+            <Pressable onPress={() => void loadWorkspace()} accessibilityRole="button">
+              <Text style={styles.errorRetry}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.railScroll}
+          contentContainerStyle={styles.chipRail}
+        >
+          {quoteFilters.map((item) => {
+            const isActive = item.id === filter;
+            return (
+              <Pressable
+                key={item.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                style={[styles.chip, isActive ? styles.chipActive : null]}
+                onPress={() => setFilter(item.id)}
+              >
+                <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {isLoading && requests.length === 0 ? <SkeletonRows /> : null}
+
+        {showEmpty ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>
+              {filter === "ALL" ? "No requests yet" : `No ${quoteFilters.find((item) => item.id === filter)?.label.toLowerCase()} requests`}
+            </Text>
+            <Text style={styles.emptyBody}>
+              Tell us what you need and nearby providers send you quotes.
+            </Text>
+            <AuthButton
+              label="Start a request"
+              icon="plus"
+              onPress={() => openComposer()}
+              style={styles.emptyAction}
+            />
+          </View>
+        ) : null}
+
+        {requests.length > 0 ? (
+          <View style={styles.list}>
+            {requests.map((request) => {
+              const isActive = request.id === selectedRequest?.id;
+              const date = request.desiredDate ? new Date(request.desiredDate) : null;
+              const hasDate = !!date && !Number.isNaN(date.getTime());
+              return (
+                <Pressable
+                  key={request.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  style={[styles.row, isActive ? styles.rowActive : null]}
+                  onPress={() => setSelectedRequestId(request.id)}
+                >
+                  <View style={styles.dateTile}>
+                    {hasDate && date ? (
+                      <>
+                        <Text style={styles.dateTileDay}>
+                          {date.toLocaleDateString(undefined, { month: "short" })}
+                        </Text>
+                        <Text style={styles.dateTileNum}>{date.getDate()}</Text>
+                      </>
+                    ) : (
+                      <FontAwesome6 name="calendar-days" size={18} color={tokens.colors.muted} />
+                    )}
+                  </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {request.requestedServiceName}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      {request.city}
+                      {request.stateCode ? `, ${request.stateCode}` : ""} · {request.matches.length}{" "}
+                      {request.matches.length === 1 ? "match" : "matches"}
+                    </Text>
+                  </View>
+                  <StatusPill status={request.status} />
+                  <FontAwesome6
+                    name={isActive ? "chevron-down" : "chevron-right"}
+                    size={14}
+                    color={tokens.colors.mutedSoft}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
 
         {selectedRequest ? (
-          <View style={styles.panel}>
+          <View style={styles.section}>
             <SectionHeader
-              title="Matched providers"
-              subtitle="Review real providers, open a conversation, or accept the strongest fit."
+              title={selectedRequest.requestedServiceName}
+              subtitle={[
+                formatDateLabel(selectedRequest.desiredDate),
+                selectedRequest.budgetMinCents || selectedRequest.budgetMaxCents
+                  ? `${formatMarketplacePrice(selectedRequest.budgetMinCents)} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents)}`
+                  : "Open budget",
+                `${selectedRequest.conversations.length} ${selectedRequest.conversations.length === 1 ? "chat" : "chats"}`,
+              ].join(" · ")}
             />
+            {selectedRequest.description ? (
+              <Text style={styles.description}>{selectedRequest.description}</Text>
+            ) : null}
+
             {selectedRequest.matches.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No providers have matched this request yet.
-              </Text>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No matches yet</Text>
+                <Text style={styles.emptyBody}>Providers near you have been notified.</Text>
+              </View>
             ) : (
               selectedRequest.matches.map((match) => {
                 const conversation = selectedRequest.conversations.find(
                   (item) => item.quoteMatchId === match.id,
                 );
                 const isAccepted = selectedRequest.acceptedQuoteMatchId === match.id;
+                const metaParts = [
+                  match.matchedService?.name ?? match.provider.businessCategory,
+                  formatMarketplaceDistance(match.distanceMiles),
+                  match.provider.averageRating ? `★ ${match.provider.averageRating.toFixed(1)}` : null,
+                ].filter(Boolean);
 
                 return (
                   <View key={match.id} style={styles.matchCard}>
                     <View style={styles.matchTop}>
-                      <View style={styles.matchIdentity}>
-                        <View style={styles.matchAvatar}>
-                          <Text style={styles.matchAvatarText}>
-                            {getInitials(match.provider.displayName || "BM")}
-                          </Text>
-                        </View>
-                        <View style={styles.matchCopy}>
-                          <Text style={styles.matchTitle}>{match.provider.displayName}</Text>
-                          <Text style={styles.matchMeta}>
-                            {match.matchedService?.name ??
-                              match.provider.businessCategory ??
-                              "Service provider"}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.matchPill}>
-                        <Text style={styles.matchPillText}>
-                          {isAccepted ? "Accepted" : match.status}
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>
+                          {getInitials(match.provider.displayName || "BM")}
                         </Text>
+                      </View>
+                      <View style={styles.rowBody}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>
+                          {match.provider.displayName}
+                        </Text>
+                        <Text style={styles.rowMeta} numberOfLines={1}>
+                          {metaParts.join(" · ")}
+                        </Text>
+                      </View>
+                      <View style={styles.matchEnd}>
+                        <Text style={styles.matchPrice}>
+                          {match.matchedService?.priceCents
+                            ? formatMarketplacePrice(match.matchedService.priceCents)
+                            : "Quote"}
+                        </Text>
+                        <StatusPill status={isAccepted ? "ACCEPTED" : match.status} />
                       </View>
                     </View>
 
-                    <View style={styles.matchMetaRail}>
-                      <View style={styles.matchMetaChip}>
-                        <Text style={styles.matchMetaChipText}>
-                          {match.provider.businessCategory ?? "Provider"}
-                        </Text>
-                      </View>
-                      <View style={styles.matchMetaChip}>
-                        <Text style={styles.matchMetaChipText}>
-                          {formatMarketplaceDistance(match.distanceMiles)}
-                        </Text>
-                      </View>
-                      {match.provider.averageRating ? (
-                        <View style={styles.matchMetaChip}>
-                          <Text style={styles.matchMetaChipText}>
-                            {match.provider.averageRating.toFixed(1)} rating
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    <View style={styles.matchInfoRow}>
-                      <Text style={styles.matchPrice}>
-                        {match.matchedService?.priceCents
-                          ? formatMarketplacePrice(match.matchedService.priceCents)
-                          : "Pricing on request"}
-                      </Text>
-                      <Text style={styles.matchRating}>
-                        {conversation ? "Chat ready" : "Awaiting reply"}
-                      </Text>
-                    </View>
-
-                    <View style={styles.matchButtonRow}>
+                    <View style={styles.matchActions}>
                       {conversation ? (
-                        <Pressable
-                          style={styles.secondaryAction}
+                        <AuthButton
+                          label="Open chat"
+                          variant="secondary"
+                          style={styles.matchButton}
                           onPress={() => setSelectedConversationId(conversation.id)}
-                        >
-                          <Text style={styles.secondaryActionText}>Open chat</Text>
-                        </Pressable>
-                      ) : null}
+                        />
+                      ) : (
+                        <Text style={styles.matchHint}>Waiting for a reply</Text>
+                      )}
                       {!isAccepted ? (
-                        <Pressable
-                          style={styles.primaryAction}
+                        <AuthButton
+                          label="Accept"
+                          variant="navy"
+                          style={styles.matchButton}
+                          loading={acceptingMatchId === match.id}
                           onPress={() => void handleAcceptMatch(match.id)}
-                        >
-                          <Text style={styles.primaryActionText}>
-                            {acceptingMatchId === match.id ? "Accepting..." : "Accept provider"}
-                          </Text>
-                        </Pressable>
+                        />
                       ) : null}
                     </View>
                   </View>
                 );
               })
             )}
-          </View>
-        ) : null}
 
-        {selectedConversation ? (
-          <View style={styles.panel}>
-            <SectionHeader
-              title={selectedConversation.provider?.displayName ?? "Conversation"}
-              subtitle="Live customer-provider messaging for this request."
-            />
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.conversationTabs}
-            >
-              {selectedRequest?.conversations.map((conversation) => {
-                const isActive = conversation.id === selectedConversation.id;
-                return (
-                  <Pressable
-                    key={conversation.id}
-                    style={[styles.conversationTab, isActive ? styles.conversationTabActive : null]}
-                    onPress={() => setSelectedConversationId(conversation.id)}
+            {selectedConversation ? (
+              <View style={styles.chatCard}>
+                {selectedRequest.conversations.length > 1 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.chatRailScroll}
+                    contentContainerStyle={styles.chatRail}
                   >
-                    <Text
-                      style={[
-                        styles.conversationTabText,
-                        isActive ? styles.conversationTabTextActive : null,
-                      ]}
-                    >
-                      {conversation.provider?.displayName ?? "Provider"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                    {selectedRequest.conversations.map((conversation) => {
+                      const isActive = conversation.id === selectedConversation.id;
+                      return (
+                        <Pressable
+                          key={conversation.id}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: isActive }}
+                          style={[styles.chip, isActive ? styles.chipActive : null]}
+                          onPress={() => setSelectedConversationId(conversation.id)}
+                        >
+                          <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                            {conversation.provider?.displayName ?? "Provider"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
+                  <Text style={styles.chatTitle}>
+                    {selectedConversation.provider?.displayName ?? "Conversation"}
+                  </Text>
+                )}
 
-            <View style={styles.messagesWrap}>
-              {selectedConversation.messages.map((message) => {
-                const isRequester = messageSenderLabel(message, selectedConversation) === "You";
-                return (
-                  <View
-                    key={message.id}
-                    style={[
-                      styles.messageRow,
-                      isRequester ? styles.messageRowRight : styles.messageRowLeft,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.messageBubble,
-                        isRequester ? styles.messageBubbleOwn : styles.messageBubbleOther,
-                      ]}
-                    >
-                      <Text style={styles.messageSender}>
-                        {messageSenderLabel(message, selectedConversation)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.messageContent,
-                          isRequester ? styles.messageContentOwn : null,
-                        ]}
+                <View style={styles.messages}>
+                  {selectedConversation.messages.length === 0 ? (
+                    <Text style={styles.matchHint}>No messages yet. Say hello.</Text>
+                  ) : null}
+                  {selectedConversation.messages.map((message) => {
+                    const isRequester = messageSenderLabel(message, selectedConversation) === "You";
+                    return (
+                      <View
+                        key={message.id}
+                        style={[styles.messageRow, isRequester ? styles.messageRowRight : null]}
                       >
-                        {message.content}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+                        <View
+                          style={[
+                            styles.bubble,
+                            isRequester ? styles.bubbleOwn : styles.bubbleOther,
+                          ]}
+                        >
+                          {!isRequester ? (
+                            <Text style={styles.bubbleSender}>{message.senderName}</Text>
+                          ) : null}
+                          <Text style={[styles.bubbleText, isRequester ? styles.bubbleTextOwn : null]}>
+                            {message.content}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
 
-            <View style={styles.messageComposer}>
-              <TextInput
-                value={messageDraft}
-                onChangeText={setMessageDraft}
-                placeholder="Type your reply..."
-                placeholderTextColor={tokens.colors.mutedSoft}
-                style={styles.messageInput}
-                multiline
-              />
-              <Pressable
-                style={styles.primaryAction}
-                onPress={() => void handleSendMessage()}
-              >
-                <Text style={styles.primaryActionText}>
-                  {isSendingMessage ? "Sending..." : "Send"}
-                </Text>
-              </Pressable>
-            </View>
+                <View style={styles.replyBar}>
+                  <TextInput
+                    value={messageDraft}
+                    onChangeText={setMessageDraft}
+                    placeholder="Write a reply"
+                    placeholderTextColor={tokens.colors.muted}
+                    style={styles.replyInput}
+                    multiline
+                    accessibilityLabel="Reply"
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Send"
+                    disabled={isSendingMessage || !messageDraft.trim()}
+                    style={[
+                      styles.sendButton,
+                      isSendingMessage || !messageDraft.trim() ? styles.sendButtonDisabled : null,
+                    ]}
+                    onPress={() => void handleSendMessage()}
+                  >
+                    {isSendingMessage ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <FontAwesome6 name="paper-plane" size={16} color="#ffffff" />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
-
-        {selectedRequest && !selectedConversation ? (
-          <View style={styles.panel}>
-            <SectionHeader
-              title="Provider conversation"
-              subtitle="When matched providers reply, the active thread for this request will land here."
-            />
-            <View style={styles.emptyPanel}>
-              <Text style={styles.emptyTitle}>No live chat yet</Text>
-              <Text style={styles.emptyText}>
-                Accept a match or wait for a provider reply and the conversation thread will appear here.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        {isLoading ? <Text style={styles.loadingText}>Refreshing live request activity…</Text> : null}
       </Screen>
 
       <Modal
@@ -1250,7 +1136,12 @@ export function WorkbenchScreen() {
         onRequestClose={closeComposer}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={closeComposer} />
+          <Pressable
+            style={styles.modalBackdrop}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={closeComposer}
+          />
           <View style={styles.modalSheetWrap}>
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -1260,14 +1151,38 @@ export function WorkbenchScreen() {
                 <View style={styles.modalHandle} />
                 <View style={styles.modalHeader}>
                   <View style={styles.modalHeaderCopy}>
-                    <Text style={styles.modalTitle}>Create a service request</Text>
-                    <Text style={styles.modalSubtitle}>
-                      A cleaner mobile request flow modeled after the BookMiz web experience.
+                    <Text style={styles.modalTitle}>New request</Text>
+                    <Text style={styles.stepCaption}>
+                      Step {stepNumber} of {composerSteps.length} · {composerSteps[composerStepIndex]?.label}
                     </Text>
                   </View>
-                  <Pressable style={styles.closeButton} onPress={closeComposer}>
+                  <Pressable
+                    style={styles.closeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close"
+                    onPress={closeComposer}
+                  >
                     <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                   </Pressable>
+                </View>
+                <View style={styles.progressRow} accessibilityRole="progressbar">
+                  {composerSteps.map((step, index) => (
+                    <Pressable
+                      key={step.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={step.label}
+                      hitSlop={10}
+                      style={[
+                        styles.progressSegment,
+                        index <= composerStepIndex ? styles.progressSegmentDone : null,
+                      ]}
+                      onPress={() => {
+                        if (index <= composerStepIndex) {
+                          setComposerStep(step.id);
+                        }
+                      }}
+                    />
+                  ))}
                 </View>
 
                 <ScrollView
@@ -1276,357 +1191,237 @@ export function WorkbenchScreen() {
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.stepRail}
-                  >
-                    {composerSteps.map((step, index) => {
-                      const isActive = step.id === composerStep;
-                      const isComplete = composerStepIndex > index;
-
-                      return (
-                        <Pressable
-                          key={step.id}
-                          style={[
-                            styles.stepCard,
-                            isActive ? styles.stepCardActive : null,
-                            isComplete ? styles.stepCardComplete : null,
-                          ]}
-                          onPress={() => {
-                            if (index <= composerStepIndex) {
-                              setComposerStep(step.id);
-                            }
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.stepLabel,
-                              isActive ? styles.stepLabelActive : null,
-                            ]}
-                          >
-                            {step.label}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.stepTitle,
-                              isActive ? styles.stepTitleActive : null,
-                            ]}
-                          >
-                            {step.title}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-
                   {composerStep === "request" ? (
                     <>
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Pick a request brief</Text>
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Template</Text>
                         <ScrollView
                           horizontal
                           showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={styles.templateRail}
+                          style={styles.railScroll}
+                          contentContainerStyle={styles.chipRail}
                         >
                           {requestTemplates.map((template) => {
                             const isActive = template.id === templateId;
                             return (
                               <Pressable
                                 key={template.id}
-                                style={[
-                                  styles.templateCard,
-                                  isActive ? styles.templateCardActive : null,
-                                ]}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: isActive }}
+                                style={[styles.chip, isActive ? styles.chipActive : null]}
                                 onPress={() => setTemplateId(template.id)}
                               >
-                                <Text
-                                  style={[
-                                    styles.templateTitle,
-                                    isActive ? styles.templateTitleActive : null,
-                                  ]}
-                                >
+                                <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
                                   {template.name}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.templateBody,
-                                    isActive ? styles.templateBodyActive : null,
-                                  ]}
-                                >
-                                  {template.shortDescription}
                                 </Text>
                               </Pressable>
                             );
                           })}
                         </ScrollView>
+                        {activeTemplate?.shortDescription ? (
+                          <Text style={styles.fieldHelp}>{activeTemplate.shortDescription}</Text>
+                        ) : null}
                       </View>
 
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Service brief</Text>
-                        <View style={styles.formGroup}>
-                          <Text style={styles.fieldLabel}>Service</Text>
-                          <TextInput
-                            value={serviceName}
-                            onChangeText={setServiceName}
-                            placeholder="Legal consult, haircut, tutoring session..."
-                            placeholderTextColor={tokens.colors.mutedSoft}
-                            style={styles.fieldInput}
-                          />
-                        </View>
+                      <AuthField
+                        label="Service"
+                        placeholder="What do you need?"
+                        value={serviceName}
+                        onChangeText={setServiceName}
+                        autoComplete="off"
+                      />
 
-                        <View style={styles.formGroup}>
-                          <Text style={styles.fieldLabel}>What do you need?</Text>
-                          <TextInput
-                            value={description}
-                            onChangeText={setDescription}
-                            placeholder="Tell BookMiz the style, timing, and details that matter."
-                            placeholderTextColor={tokens.colors.mutedSoft}
-                            style={[styles.fieldInput, styles.fieldInputTall]}
-                            multiline
-                            textAlignVertical="top"
-                          />
-                        </View>
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Details</Text>
+                        <TextInput
+                          value={description}
+                          onChangeText={setDescription}
+                          placeholder="Style, timing and anything else providers should know"
+                          placeholderTextColor={tokens.colors.muted}
+                          style={styles.textArea}
+                          multiline
+                          textAlignVertical="top"
+                          accessibilityLabel="Details"
+                        />
                       </View>
 
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Budget and timing</Text>
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Budget min</Text>
-                            <TextInput
-                              value={budgetMin}
-                              onChangeText={setBudgetMin}
-                              placeholder="80"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                              keyboardType="numeric"
-                            />
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Budget max</Text>
-                            <TextInput
-                              value={budgetMax}
-                              onChangeText={setBudgetMax}
-                              placeholder="150"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                              keyboardType="numeric"
-                            />
-                          </View>
-                        </View>
+                      <AuthField
+                        label="Budget from ($)"
+                        placeholder="Optional"
+                        value={budgetMin}
+                        onChangeText={setBudgetMin}
+                        keyboardType="number-pad"
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="Budget up to ($)"
+                        placeholder="Optional"
+                        value={budgetMax}
+                        onChangeText={setBudgetMax}
+                        keyboardType="number-pad"
+                        autoComplete="off"
+                      />
 
-                        <View style={styles.formGroup}>
-                          <Text style={styles.fieldLabel}>Preferred date</Text>
-                          <Pressable
-                            style={styles.pickerField}
-                            onPress={() => openPicker("desiredDate", "date")}
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>
+                          Preferred date{activeTemplate?.requiresDate ? "" : " (optional)"}
+                        </Text>
+                        <Pressable
+                          style={styles.pickerField}
+                          accessibilityRole="button"
+                          onPress={() => openPicker("desiredDate", "date")}
+                        >
+                          <Text
+                            style={[styles.pickerFieldText, !desiredDate ? styles.pickerFieldPlaceholder : null]}
                           >
-                            <Text
-                              style={[
-                                styles.pickerFieldText,
-                                !desiredDate ? styles.pickerFieldPlaceholder : null,
-                              ]}
-                            >
-                              {desiredDate ? formatDateLabel(desiredDate) : "Choose a date"}
-                            </Text>
-                            <FontAwesome6 name="calendar" size={16} color={tokens.colors.muted} />
-                          </Pressable>
-                        </View>
-
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Earliest time</Text>
-                            <Pressable
-                              style={styles.pickerField}
-                              onPress={() => openPicker("desiredWindowStart", "time")}
-                            >
-                              <Text
-                                style={[
-                                  styles.pickerFieldText,
-                                  !desiredWindowStart ? styles.pickerFieldPlaceholder : null,
-                                ]}
-                              >
-                                {desiredWindowStart
-                                  ? formatTimeLabel(desiredWindowStart)
-                                  : "Set time"}
-                              </Text>
-                              <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
-                            </Pressable>
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Latest time</Text>
-                            <Pressable
-                              style={styles.pickerField}
-                              onPress={() => openPicker("desiredWindowEnd", "time")}
-                            >
-                              <Text
-                                style={[
-                                  styles.pickerFieldText,
-                                  !desiredWindowEnd ? styles.pickerFieldPlaceholder : null,
-                                ]}
-                              >
-                                {desiredWindowEnd
-                                  ? formatTimeLabel(desiredWindowEnd)
-                                  : "Set time"}
-                              </Text>
-                              <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
-                            </Pressable>
-                          </View>
-                        </View>
+                            {desiredDate ? formatDateLabel(desiredDate) : "Choose a date"}
+                          </Text>
+                          <FontAwesome6 name="calendar-days" size={16} color={tokens.colors.muted} />
+                        </Pressable>
                       </View>
 
-                      {intakeFields.length ? (
-                        <View style={styles.modalSection}>
-                          <Text style={styles.modalSectionLabel}>Intake details</Text>
-                          {intakeFields.map((field) => {
-                            const fieldValue = intakeAnswers[field.id];
-                            const stringValue = typeof fieldValue === "string" ? fieldValue : "";
-                            const selectedValues = Array.isArray(fieldValue)
-                              ? fieldValue.filter((value): value is string => typeof value === "string")
-                              : [];
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Earliest time</Text>
+                        <Pressable
+                          style={styles.pickerField}
+                          accessibilityRole="button"
+                          onPress={() => openPicker("desiredWindowStart", "time")}
+                        >
+                          <Text
+                            style={[
+                              styles.pickerFieldText,
+                              !desiredWindowStart ? styles.pickerFieldPlaceholder : null,
+                            ]}
+                          >
+                            {desiredWindowStart ? formatTimeLabel(desiredWindowStart) : "Any time"}
+                          </Text>
+                          <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
+                        </Pressable>
+                      </View>
 
-                            return (
-                              <View key={field.id} style={styles.formGroup}>
-                                <Text style={styles.fieldLabel}>
-                                  {field.label}
-                                  {field.required ? "" : " (optional)"}
-                                </Text>
-                                {field.type === "LONG_TEXT" ? (
-                                  <TextInput
-                                    value={stringValue}
-                                    onChangeText={(value) => updateIntakeAnswer(field.id, value)}
-                                    placeholder={field.placeholder ?? ""}
-                                    placeholderTextColor={tokens.colors.mutedSoft}
-                                    style={[styles.fieldInput, styles.fieldInputMedium]}
-                                    multiline
-                                    textAlignVertical="top"
-                                  />
-                                ) : field.type === "SELECT" ? (
-                                  <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={styles.choiceRail}
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Latest time</Text>
+                        <Pressable
+                          style={styles.pickerField}
+                          accessibilityRole="button"
+                          onPress={() => openPicker("desiredWindowEnd", "time")}
+                        >
+                          <Text
+                            style={[
+                              styles.pickerFieldText,
+                              !desiredWindowEnd ? styles.pickerFieldPlaceholder : null,
+                            ]}
+                          >
+                            {desiredWindowEnd ? formatTimeLabel(desiredWindowEnd) : "Any time"}
+                          </Text>
+                          <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
+                        </Pressable>
+                      </View>
+
+                      {intakeFields.map((field) => {
+                        const fieldValue = intakeAnswers[field.id];
+                        const stringValue = typeof fieldValue === "string" ? fieldValue : "";
+                        const selectedValues = Array.isArray(fieldValue)
+                          ? fieldValue.filter((value): value is string => typeof value === "string")
+                          : [];
+                        const label = `${field.label}${field.required ? "" : " (optional)"}`;
+
+                        if (field.type === "LONG_TEXT") {
+                          return (
+                            <View key={field.id} style={styles.fieldGroup}>
+                              <Text style={styles.fieldLabel}>{label}</Text>
+                              <TextInput
+                                value={stringValue}
+                                onChangeText={(value) => updateIntakeAnswer(field.id, value)}
+                                placeholder={field.placeholder ?? ""}
+                                placeholderTextColor={tokens.colors.muted}
+                                style={styles.textArea}
+                                multiline
+                                textAlignVertical="top"
+                                accessibilityLabel={field.label}
+                              />
+                              {field.helpText ? <Text style={styles.fieldHelp}>{field.helpText}</Text> : null}
+                            </View>
+                          );
+                        }
+
+                        if (field.type === "SELECT" || field.type === "MULTI_SELECT" || field.type === "BOOLEAN") {
+                          const options =
+                            field.type === "BOOLEAN"
+                              ? [
+                                  { key: "true", label: "Yes", selected: fieldValue === true, onPress: () => updateIntakeAnswer(field.id, true) },
+                                  { key: "false", label: "No", selected: fieldValue === false, onPress: () => updateIntakeAnswer(field.id, false) },
+                                ]
+                              : (field.options ?? []).map((option) => {
+                                  const selected =
+                                    field.type === "SELECT" ? stringValue === option : selectedValues.includes(option);
+                                  const nextValues = selected
+                                    ? selectedValues.filter((value) => value !== option)
+                                    : [...selectedValues, option];
+                                  return {
+                                    key: option,
+                                    label: option,
+                                    selected,
+                                    onPress: () =>
+                                      field.type === "SELECT"
+                                        ? updateIntakeAnswer(field.id, option)
+                                        : updateIntakeAnswer(field.id, nextValues),
+                                  };
+                                });
+
+                          return (
+                            <View key={field.id} style={styles.fieldGroup}>
+                              <Text style={styles.fieldLabel}>{label}</Text>
+                              <View style={styles.chipWrap}>
+                                {options.map((option) => (
+                                  <Pressable
+                                    key={option.key}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: option.selected }}
+                                    style={[styles.chip, option.selected ? styles.chipActive : null]}
+                                    onPress={option.onPress}
                                   >
-                                    {(field.options ?? []).map((option) => {
-                                      const selected = stringValue === option;
-
-                                      return (
-                                        <Pressable
-                                          key={option}
-                                          style={[
-                                            styles.choiceChip,
-                                            selected ? styles.choiceChipActive : null,
-                                          ]}
-                                          onPress={() => updateIntakeAnswer(field.id, option)}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.choiceChipText,
-                                              selected ? styles.choiceChipTextActive : null,
-                                            ]}
-                                          >
-                                            {option}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </ScrollView>
-                                ) : field.type === "MULTI_SELECT" ? (
-                                  <View style={styles.choiceWrap}>
-                                    {(field.options ?? []).map((option) => {
-                                      const selected = selectedValues.includes(option);
-                                      const nextValues = selected
-                                        ? selectedValues.filter((value) => value !== option)
-                                        : [...selectedValues, option];
-
-                                      return (
-                                        <Pressable
-                                          key={option}
-                                          style={[
-                                            styles.choiceChip,
-                                            selected ? styles.choiceChipActive : null,
-                                          ]}
-                                          onPress={() => updateIntakeAnswer(field.id, nextValues)}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.choiceChipText,
-                                              selected ? styles.choiceChipTextActive : null,
-                                            ]}
-                                          >
-                                            {option}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-                                ) : field.type === "BOOLEAN" ? (
-                                  <View style={styles.choiceWrap}>
-                                    {[true, false].map((option) => {
-                                      const selected = fieldValue === option;
-
-                                      return (
-                                        <Pressable
-                                          key={String(option)}
-                                          style={[
-                                            styles.choiceChip,
-                                            selected ? styles.choiceChipActive : null,
-                                          ]}
-                                          onPress={() => updateIntakeAnswer(field.id, option)}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.choiceChipText,
-                                              selected ? styles.choiceChipTextActive : null,
-                                            ]}
-                                          >
-                                            {option ? "Yes" : "No"}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-                                ) : (
-                                  <TextInput
-                                    value={stringValue}
-                                    onChangeText={(value) => updateIntakeAnswer(field.id, value)}
-                                    placeholder={field.placeholder ?? ""}
-                                    placeholderTextColor={tokens.colors.mutedSoft}
-                                    style={styles.fieldInput}
-                                  />
-                                )}
-                                {field.helpText ? (
-                                  <Text style={styles.fieldHelp}>{field.helpText}</Text>
-                                ) : null}
+                                    <Text
+                                      style={[styles.chipText, option.selected ? styles.chipTextActive : null]}
+                                    >
+                                      {option.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
                               </View>
-                            );
-                          })}
-                        </View>
-                      ) : null}
+                              {field.helpText ? <Text style={styles.fieldHelp}>{field.helpText}</Text> : null}
+                            </View>
+                          );
+                        }
+
+                        return (
+                          <AuthField
+                            key={field.id}
+                            label={label}
+                            placeholder={field.placeholder ?? ""}
+                            value={stringValue}
+                            onChangeText={(value) => updateIntakeAnswer(field.id, value)}
+                            helperText={field.helpText ?? undefined}
+                            autoComplete="off"
+                          />
+                        );
+                      })}
 
                       {activeTemplate?.checklistItems.length ? (
-                        <View style={styles.modalSection}>
-                          <Text style={styles.modalSectionLabel}>Documents and prep</Text>
-                          <View style={styles.choiceWrap}>
+                        <View style={styles.fieldGroup}>
+                          <Text style={styles.fieldLabel}>What to include</Text>
+                          <View style={styles.chipWrap}>
                             {activeTemplate.checklistItems.map((item) => {
                               const selected = requestedDocumentLabels.includes(item);
-
                               return (
                                 <Pressable
                                   key={item}
-                                  style={[
-                                    styles.choiceChip,
-                                    selected ? styles.choiceChipActive : null,
-                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  style={[styles.chip, selected ? styles.chipActive : null]}
                                   onPress={() => toggleRequestedDocument(item)}
                                 >
-                                  <Text
-                                    style={[
-                                      styles.choiceChipText,
-                                      selected ? styles.choiceChipTextActive : null,
-                                    ]}
-                                  >
+                                  <Text style={[styles.chipText, selected ? styles.chipTextActive : null]}>
                                     {item}
                                   </Text>
                                 </Pressable>
@@ -1640,189 +1435,124 @@ export function WorkbenchScreen() {
 
                   {composerStep === "location" ? (
                     <>
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Delivery preference</Text>
-                        <View style={styles.choiceWrap}>
-                          {channelOptions.map((option) => {
-                            const selected = normalizedRequestedChannels.includes(option.value);
-
-                            return (
-                              <Pressable
-                                key={option.value}
-                                style={[
-                                  styles.deliveryCard,
-                                  selected ? styles.deliveryCardActive : null,
-                                ]}
-                                onPress={() => toggleRequestedChannel(option.value)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.deliveryCardTitle,
-                                    selected ? styles.deliveryCardTitleActive : null,
-                                  ]}
-                                >
-                                  {option.label}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.deliveryCardBody,
-                                    selected ? styles.deliveryCardBodyActive : null,
-                                  ]}
-                                >
-                                  {option.description}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>How you want it done</Text>
+                        {channelOptions.map((option) => {
+                          const selected = normalizedRequestedChannels.includes(option.value);
+                          return (
+                            <Pressable
+                              key={option.value}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: selected }}
+                              style={[styles.optionRow, selected ? styles.optionRowActive : null]}
+                              onPress={() => toggleRequestedChannel(option.value)}
+                            >
+                              <View style={styles.rowBody}>
+                                <Text style={styles.optionTitle}>{option.label}</Text>
+                                <Text style={styles.rowMeta}>{option.description}</Text>
+                              </View>
+                              <View style={[styles.check, selected ? styles.checkActive : null]}>
+                                {selected ? (
+                                  <FontAwesome6 name="check" size={12} color={tokens.colors.inkDeep} />
+                                ) : null}
+                              </View>
+                            </Pressable>
+                          );
+                        })}
                       </View>
 
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Search area</Text>
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>City</Text>
-                            <TextInput
-                              value={city}
-                              onChangeText={setCity}
-                              placeholder="Chicago"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                            />
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>State</Text>
-                            <TextInput
-                              value={stateCode}
-                              onChangeText={setStateCode}
-                              placeholder="IL"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                              autoCapitalize="characters"
-                            />
-                          </View>
-                        </View>
-
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Country</Text>
-                            <TextInput
-                              value={countryCode}
-                              onChangeText={setCountryCode}
-                              placeholder="US"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                              autoCapitalize="characters"
-                            />
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Search radius</Text>
-                            <TextInput
-                              value={searchRadiusMiles}
-                              onChangeText={setSearchRadiusMiles}
-                              placeholder="15"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                              keyboardType="numeric"
-                            />
-                          </View>
-                        </View>
-
-                        <View style={styles.formGroup}>
-                          <Text style={styles.fieldLabel}>Address line 1</Text>
+                      <AuthField label="City" placeholder="City" value={city} onChangeText={setCity} autoComplete="off" />
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>State</Text>
+                        <View style={styles.inputShell}>
                           <TextInput
-                            value={line1}
-                            onChangeText={setLine1}
-                            placeholder="1105 Berry Street"
-                            placeholderTextColor={tokens.colors.mutedSoft}
-                            style={styles.fieldInput}
+                            value={stateCode}
+                            onChangeText={setStateCode}
+                            placeholder="State code"
+                            placeholderTextColor={tokens.colors.muted}
+                            style={styles.input}
+                            autoCapitalize="characters"
+                            accessibilityLabel="State"
                           />
-                        </View>
-
-                        <View style={styles.formGroup}>
-                          <Text style={styles.fieldLabel}>Address line 2</Text>
-                          <TextInput
-                            value={line2}
-                            onChangeText={setLine2}
-                            placeholder="Apartment, suite, gate code..."
-                            placeholderTextColor={tokens.colors.mutedSoft}
-                            style={styles.fieldInput}
-                          />
-                        </View>
-
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>County</Text>
-                            <TextInput
-                              value={countyName}
-                              onChangeText={setCountyName}
-                              placeholder="Davidson County"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                            />
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Postal code</Text>
-                            <TextInput
-                              value={postalCode}
-                              onChangeText={setPostalCode}
-                              placeholder="37203"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                            />
-                          </View>
-                        </View>
-
-                        <View style={styles.formRow}>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Contact phone</Text>
-                            <TextInput
-                              value={contactPhone}
-                              onChangeText={setContactPhone}
-                              placeholder="+1 555 555 0101"
-                              placeholderTextColor={tokens.colors.mutedSoft}
-                              style={styles.fieldInput}
-                            />
-                          </View>
-                          <View style={styles.formColumn}>
-                            <Text style={styles.fieldLabel}>Coverage summary</Text>
-                            <View style={styles.summaryBox}>
-                              <Text style={styles.summaryText}>
-                                {[
-                                  city.trim(),
-                                  stateCode.trim().toUpperCase(),
-                                  countryCode.trim().toUpperCase(),
-                                ]
-                                  .filter(Boolean)
-                                  .join(", ") || "Set your service area"}
-                              </Text>
-                              <Text style={styles.summaryHint}>
-                                {searchRadiusMiles.trim() || "15"} mile search radius
-                              </Text>
-                            </View>
-                          </View>
                         </View>
                       </View>
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Country</Text>
+                        <View style={styles.inputShell}>
+                          <TextInput
+                            value={countryCode}
+                            onChangeText={setCountryCode}
+                            placeholder="Country code"
+                            placeholderTextColor={tokens.colors.muted}
+                            style={styles.input}
+                            autoCapitalize="characters"
+                            accessibilityLabel="Country"
+                          />
+                        </View>
+                      </View>
+                      <AuthField
+                        label="Search radius (miles)"
+                        placeholder="15"
+                        value={searchRadiusMiles}
+                        onChangeText={setSearchRadiusMiles}
+                        keyboardType="number-pad"
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="Address line 1 (optional)"
+                        placeholder="Street address"
+                        value={line1}
+                        onChangeText={setLine1}
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="Address line 2 (optional)"
+                        placeholder="Apartment, suite, gate code"
+                        value={line2}
+                        onChangeText={setLine2}
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="County (optional)"
+                        placeholder="County"
+                        value={countyName}
+                        onChangeText={setCountyName}
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="Postal code (optional)"
+                        placeholder="Postal code"
+                        value={postalCode}
+                        onChangeText={setPostalCode}
+                        autoComplete="off"
+                      />
+                      <AuthField
+                        label="Contact phone (optional)"
+                        placeholder="Phone number"
+                        value={contactPhone}
+                        onChangeText={setContactPhone}
+                        autoComplete="off"
+                      />
                     </>
                   ) : null}
 
                   {composerStep === "review" ? (
                     <>
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Review request</Text>
-                        <View style={styles.reviewCard}>
-                          {reviewRows.map((row) => (
-                            <View key={row.label} style={styles.reviewRow}>
-                              <Text style={styles.reviewLabel}>{row.label}</Text>
-                              <Text style={styles.reviewValue}>{row.value}</Text>
-                            </View>
-                          ))}
-                        </View>
+                      <View style={styles.reviewCard}>
+                        {reviewRows.map((row, index) => (
+                          <View
+                            key={row.label}
+                            style={[styles.reviewRow, index > 0 ? styles.reviewRowBorder : null]}
+                          >
+                            <Text style={styles.reviewLabel}>{row.label}</Text>
+                            <Text style={styles.reviewValue}>{row.value}</Text>
+                          </View>
+                        ))}
                       </View>
 
-                      <View style={styles.modalSection}>
-                        <Text style={styles.modalSectionLabel}>Request summary</Text>
-                        <Text style={styles.reviewDescription}>
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>What providers see</Text>
+                        <Text style={styles.description}>
                           {buildRequestDescription({
                             description,
                             serviceModel: effectiveServiceModel,
@@ -1840,16 +1570,12 @@ export function WorkbenchScreen() {
                         </Text>
                       </View>
 
-                      {activeTemplate?.checklistItems.length ? (
-                        <View style={styles.checklistCard}>
-                          <Text style={styles.checklistTitle}>Providers will look for</Text>
-                          {activeTemplate.checklistItems.map((item) => (
+                      {requestedDocumentLabels.length ? (
+                        <View style={styles.fieldGroup}>
+                          <Text style={styles.fieldLabel}>You will include</Text>
+                          {requestedDocumentLabels.map((item) => (
                             <View key={item} style={styles.checklistRow}>
-                              <FontAwesome6
-                                name="check"
-                                size={11}
-                                color={tokens.colors.brandDeep}
-                              />
+                              <FontAwesome6 name="check" size={14} color={tokens.colors.success} />
                               <Text style={styles.checklistText}>{item}</Text>
                             </View>
                           ))}
@@ -1858,64 +1584,28 @@ export function WorkbenchScreen() {
                     </>
                   ) : null}
 
-                  {error ? <Text style={styles.modalErrorText}>{error}</Text> : null}
-
-                  <View style={styles.modalFooter}>
-                    <View style={styles.composerFooterRow}>
-                      {composerStep !== "request" ? (
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={() =>
-                            setComposerStep(
-                              composerStep === "review" ? "location" : "request",
-                            )
-                          }
-                        >
-                          <Text style={styles.secondaryButtonText}>Back</Text>
-                        </Pressable>
-                      ) : (
-                        <Pressable style={styles.secondaryButton} onPress={closeComposer}>
-                          <Text style={styles.secondaryButtonText}>Cancel</Text>
-                        </Pressable>
-                      )}
-
-                      {composerStep === "request" ? (
-                        <Pressable
-                          style={[
-                            styles.primaryActionWide,
-                            !canContinueFromRequest ? styles.buttonDisabled : null,
-                          ]}
-                          disabled={!canContinueFromRequest}
-                          onPress={() => setComposerStep("location")}
-                        >
-                          <Text style={styles.primaryActionText}>Continue</Text>
-                        </Pressable>
-                      ) : null}
-
-                      {composerStep === "location" ? (
-                        <Pressable
-                          style={[
-                            styles.primaryActionWide,
-                            !canContinueFromLocation ? styles.buttonDisabled : null,
-                          ]}
-                          disabled={!canContinueFromLocation}
-                          onPress={() => setComposerStep("review")}
-                        >
-                          <Text style={styles.primaryActionText}>Review request</Text>
-                        </Pressable>
-                      ) : null}
-
-                      {composerStep === "review" ? (
-                        <AuthButton
-                          label={isSubmitting ? "Sending request..." : "Send request"}
-                          disabled={!canSubmitRequest || isSubmitting}
-                          onPress={() => void handleCreateRequest()}
-                          style={styles.composerSubmitButton}
-                        />
-                      ) : null}
+                  {error ? (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText} accessibilityRole="alert">
+                        {error}
+                      </Text>
                     </View>
-                  </View>
+                  ) : null}
                 </ScrollView>
+
+                <View style={styles.modalFooter}>
+                  <AuthButton
+                    label={composerStep === "request" ? "Cancel" : "Back"}
+                    variant="secondary"
+                    style={styles.footerSecondary}
+                    onPress={
+                      composerStep === "request"
+                        ? closeComposer
+                        : () => setComposerStep(composerStep === "review" ? "location" : "request")
+                    }
+                  />
+                  {footerPrimary}
+                </View>
               </SafeAreaView>
             </KeyboardAvoidingView>
           </View>
@@ -1928,27 +1618,33 @@ export function WorkbenchScreen() {
         animationType="fade"
         onRequestClose={closePicker}
       >
-        <View style={styles.pickerModalRoot}>
-          <Pressable style={styles.pickerBackdrop} onPress={closePicker} />
+        <View style={styles.modalRoot}>
+          <Pressable
+            style={styles.modalBackdrop}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={closePicker}
+          />
           {activePicker ? (
             <View style={styles.pickerSheetWrap}>
               <SafeAreaView style={styles.pickerSheet} edges={["bottom"]}>
-                <View style={styles.pickerHeader}>
-                  <View style={styles.pickerHeaderCopy}>
-                    <Text style={styles.pickerTitle}>
+                <View style={styles.modalHandle} />
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalHeaderCopy}>
+                    <Text style={styles.modalTitle}>
                       {activePicker.field === "desiredDate"
-                        ? "Choose a date"
+                        ? "Preferred date"
                         : activePicker.field === "desiredWindowStart"
-                          ? "Set earliest time"
-                          : "Set latest time"}
-                    </Text>
-                    <Text style={styles.pickerSubtitle}>
-                      {activePicker.mode === "date"
-                        ? "Pick the day you would like the request to go out."
-                        : "Choose a clean time window for providers to respond to."}
+                          ? "Earliest time"
+                          : "Latest time"}
                     </Text>
                   </View>
-                  <Pressable style={styles.closeButton} onPress={closePicker}>
+                  <Pressable
+                    style={styles.closeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close"
+                    onPress={closePicker}
+                  >
                     <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                   </Pressable>
                 </View>
@@ -1970,13 +1666,14 @@ export function WorkbenchScreen() {
                 </View>
 
                 {Platform.OS === "ios" ? (
-                  <View style={styles.pickerFooter}>
-                    <Pressable style={styles.secondaryButton} onPress={closePicker}>
-                      <Text style={styles.secondaryButtonText}>Cancel</Text>
-                    </Pressable>
-                    <Pressable style={styles.primaryActionWide} onPress={confirmPicker}>
-                      <Text style={styles.primaryActionText}>Done</Text>
-                    </Pressable>
+                  <View style={styles.modalFooter}>
+                    <AuthButton
+                      label="Cancel"
+                      variant="secondary"
+                      style={styles.footerSecondary}
+                      onPress={closePicker}
+                    />
+                    <AuthButton label="Done" style={styles.footerPrimary} onPress={confirmPicker} />
                   </View>
                 ) : null}
               </SafeAreaView>
@@ -1988,20 +1685,401 @@ export function WorkbenchScreen() {
   );
 }
 
+function StatusPill({ status }: { status: CustomerQuoteRequest["status"] | string }) {
+  const tone =
+    status === "MATCHED"
+      ? styles.pillMatched
+      : status === "ACCEPTED"
+        ? styles.pillBooked
+        : status === "CANCELLED" || status === "EXPIRED" || status === "DECLINED"
+          ? styles.pillMuted
+          : null;
+  const textTone =
+    status === "MATCHED"
+      ? styles.pillTextMatched
+      : status === "ACCEPTED"
+        ? styles.pillTextBooked
+        : status === "CANCELLED" || status === "EXPIRED" || status === "DECLINED"
+          ? styles.pillTextMuted
+          : null;
+  const label =
+    status === "ACCEPTED"
+      ? "Booked"
+      : status === "OPEN" || status === "MATCHED" || status === "CANCELLED" || status === "EXPIRED"
+        ? formatRequestStatus(status as CustomerQuoteRequest["status"])
+        : status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ");
+
+  return (
+    <View style={[styles.pill, tone]}>
+      <Text style={[styles.pillText, textTone]}>{label}</Text>
+    </View>
+  );
+}
+
+function SkeletonRows() {
+  const opacity = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <View style={styles.list}>
+      {[0, 1, 2].map((index) => (
+        <Animated.View key={index} style={[styles.row, { opacity }]}>
+          <View style={[styles.dateTile, styles.skeletonBlock]} />
+          <View style={styles.rowBody}>
+            <View style={[styles.skeletonBlock, styles.skeletonLineShort]} />
+            <View style={[styles.skeletonBlock, styles.skeletonLine]} />
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  section: {
+    gap: 12,
+  },
+  list: {
+    gap: 12,
+  },
+  railScroll: {
+    marginHorizontal: -20,
+  },
+  chipRail: {
+    gap: 8,
+    paddingHorizontal: 20,
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    height: 40,
+    justifyContent: "center",
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+  },
+  chipActive: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
+  },
+  chipText: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  chipTextActive: {
+    color: "#ffffff",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+  },
+  rowActive: {
+    borderColor: tokens.colors.inkDeep,
+  },
+  dateTile: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateTileDay: {
+    color: tokens.colors.muted,
+    fontSize: 11,
+    fontFamily: tokens.font.semibold,
+  },
+  dateTileNum: {
+    color: tokens.colors.ink,
+    fontSize: 18,
+    lineHeight: 22,
+    fontFamily: tokens.font.display,
+  },
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.bold,
+  },
+  rowMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
+  },
+  pill: {
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  pillMatched: {
+    backgroundColor: tokens.colors.brandSoft,
+  },
+  pillBooked: {
+    backgroundColor: tokens.colors.successSoft,
+  },
+  pillMuted: {
+    backgroundColor: tokens.colors.surfaceSoft,
+  },
+  pillText: {
+    color: tokens.colors.ink,
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
+  },
+  pillTextMatched: {
+    color: tokens.colors.brandDeep,
+  },
+  pillTextBooked: {
+    color: tokens.colors.success,
+  },
+  pillTextMuted: {
+    color: tokens.colors.mutedSoft,
+  },
+  description: {
+    color: tokens.colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: tokens.font.regular,
+  },
+  matchCard: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    padding: 14,
+    gap: 12,
+  },
+  matchTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: tokens.colors.inkDeep,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  matchEnd: {
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  matchPrice: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
+  },
+  matchActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  matchButton: {
+    flex: 1,
+    minHeight: 44,
+  },
+  matchHint: {
+    flex: 1,
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  chatCard: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    padding: 14,
+    gap: 12,
+  },
+  chatRailScroll: {
+    marginHorizontal: -14,
+  },
+  chatRail: {
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  chatTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.3,
+  },
+  messages: {
+    gap: 8,
+  },
+  messageRow: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+  },
+  messageRowRight: {
+    justifyContent: "flex-end",
+  },
+  bubble: {
+    maxWidth: "82%",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  bubbleOwn: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderBottomRightRadius: 4,
+  },
+  bubbleOther: {
+    backgroundColor: tokens.colors.surface,
+    borderBottomLeftRadius: 4,
+  },
+  bubbleSender: {
+    color: tokens.colors.muted,
+    fontSize: 12,
+    fontFamily: tokens.font.semibold,
+  },
+  bubbleText: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: tokens.font.regular,
+  },
+  bubbleTextOwn: {
+    color: "#ffffff",
+  },
+  replyBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+  },
+  replyInput: {
+    flex: 1,
+    minHeight: 48,
+    maxHeight: 120,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: tokens.colors.surfaceSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.regular,
+  },
+  sendButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: tokens.colors.inkDeep,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendButtonDisabled: {
+    opacity: 0.4,
+  },
+  emptyCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    alignItems: "center",
+    gap: 4,
+  },
+  emptyTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+  },
+  emptyBody: {
+    color: tokens.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    fontFamily: tokens.font.regular,
+  },
+  emptyAction: {
+    alignSelf: "stretch",
+    marginTop: 12,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  skeletonBlock: {
+    backgroundColor: tokens.colors.border,
+    borderWidth: 0,
+    borderRadius: 7,
+  },
+  skeletonLineShort: {
+    height: 14,
+    width: "55%",
+  },
+  skeletonLine: {
+    height: 12,
+    width: "90%",
+  },
   modalRoot: {
     flex: 1,
     justifyContent: "flex-end",
   },
-  pickerModalRoot: {
-    flex: 1,
-    justifyContent: "flex-end",
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(16, 39, 72, 0.45)",
   },
   modalSheetWrap: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  pickerSheetWrap: {
     flex: 1,
     justifyContent: "flex-end",
   },
@@ -2009,778 +2087,157 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
   },
-  heroMetrics: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  heroMetricCard: {
-    flex: 1,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 3,
-  },
-  heroMetricValue: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  heroMetricLabel: {
-    color: "rgba(255,255,255,0.74)",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  panel: {
-    backgroundColor: tokens.colors.panel,
-    borderRadius: tokens.radius.lg,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 18,
-    gap: 14,
-  },
-  workspaceHero: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.ink,
-    padding: 18,
-    gap: 16,
-  },
-  workspaceHeroCopy: {
-    gap: 8,
-  },
-  workspaceEyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-  },
-  workspaceTitle: {
-    color: "#fff",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  workspaceBody: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  workspaceMetaRail: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  workspaceMetaCard: {
-    flex: 1,
-    borderRadius: tokens.radius.md,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 4,
-  },
-  workspaceMetaValue: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  workspaceMetaLabel: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  actionBar: {
-    gap: 12,
-  },
-  actionButton: {
-    minHeight: 68,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.inkDeep,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
-  },
-  actionButtonIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionButtonCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  actionButtonTitle: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  actionButtonSubtitle: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  templatePreviewWrap: {
-    gap: 12,
-  },
-  filterRail: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  filterChip: {
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  filterChipActive: {
-    backgroundColor: tokens.colors.brand,
-    borderColor: tokens.colors.brand,
-  },
-  filterChipText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  filterChipTextActive: {
-    color: tokens.colors.ink,
-  },
-  requestRail: {
-    gap: 12,
-    paddingRight: 8,
-  },
-  requestCard: {
-    width: 280,
-    borderRadius: 26,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 16,
-    gap: 10,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  requestCardActive: {
-    borderColor: tokens.colors.ink,
-    backgroundColor: "#fff",
-    shadowOpacity: 0.1,
-  },
-  requestCardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  requestCardTitle: {
-    flex: 1,
-    color: tokens.colors.ink,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  statusPill: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#ecf8d1",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  statusPillText: {
-    color: tokens.colors.ink,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
-  },
-  requestCardMeta: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  requestCardBody: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  requestSignalRail: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  requestSignalPill: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#eefad1",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  requestSignalPillMuted: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#f1f4f9",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  requestSignalText: {
-    color: "#699d00",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  requestSignalTextMuted: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  requestCardDate: {
-    color: tokens.colors.mutedSoft,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  detailsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  detailCard: {
-    width: "48%",
-    borderRadius: 22,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 14,
-    gap: 6,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 1,
-  },
-  detailLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  detailValue: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "800",
-  },
-  matchCard: {
-    borderRadius: 26,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 16,
-    gap: 12,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  matchTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  matchIdentity: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  matchAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#f5efe7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  matchAvatarText: {
-    color: tokens.colors.gold,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  matchCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  matchTitle: {
-    color: tokens.colors.ink,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  matchMeta: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  matchMetaRail: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  matchMetaChip: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#f3f6fa",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  matchMetaChipText: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  matchPill: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#eef3fb",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  matchPillText: {
-    color: tokens.colors.ink,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
-  },
-  matchInfoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  matchPrice: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  matchRating: {
-    color: tokens.colors.brandDeep,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  matchButtonRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  primaryAction: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.ink,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryActionText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  secondaryAction: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryActionText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  conversationTabs: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  conversationTab: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  conversationTabActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-  },
-  conversationTabText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  conversationTabTextActive: {
-    color: "#fff",
-  },
-  messagesWrap: {
-    gap: 10,
-  },
-  messageRow: {
-    flexDirection: "row",
-  },
-  messageRowLeft: {
-    justifyContent: "flex-start",
-  },
-  messageRowRight: {
-    justifyContent: "flex-end",
-  },
-  messageBubble: {
-    maxWidth: "82%",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 6,
-  },
-  messageBubbleOwn: {
-    backgroundColor: tokens.colors.ink,
-  },
-  messageBubbleOther: {
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-  },
-  messageSender: {
-    color: tokens.colors.mutedSoft,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  messageContent: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  messageContentOwn: {
-    color: "#fff",
-  },
-  messageComposer: {
-    gap: 12,
-  },
-  messageInput: {
-    minHeight: 98,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: tokens.colors.ink,
-    fontSize: 15,
-    textAlignVertical: "top",
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.42)",
-  },
-  pickerBackdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.5)",
-  },
   modalSheet: {
     width: "100%",
-    height: "88%",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: tokens.colors.surfaceSoft,
+    height: "92%",
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: tokens.colors.surface,
     paddingTop: 12,
     overflow: "hidden",
+  },
+  pickerSheetWrap: {
+    justifyContent: "flex-end",
   },
   pickerSheet: {
     width: "100%",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: tokens.colors.surfaceSoft,
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: tokens.colors.surface,
     paddingTop: 12,
     overflow: "hidden",
   },
-  stepRail: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  stepCard: {
-    width: 200,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 6,
-  },
-  stepCardActive: {
-    borderColor: tokens.colors.ink,
-    backgroundColor: tokens.colors.ink,
-  },
-  stepCardComplete: {
-    borderColor: "#d6efb4",
-    backgroundColor: "#f6fde8",
-  },
-  stepLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  stepLabelActive: {
-    color: "rgba(255,255,255,0.72)",
-  },
-  stepTitle: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-  stepTitleActive: {
-    color: "#fff",
-  },
   modalHandle: {
     alignSelf: "center",
-    width: 52,
+    width: 44,
     height: 5,
-    borderRadius: 999,
-    backgroundColor: "#cfd8e6",
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.borderStrong,
   },
   modalHeader: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
+    gap: 12,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 12,
-  },
-  pickerHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 14,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
   },
   modalHeaderCopy: {
     flex: 1,
-    gap: 6,
-  },
-  pickerHeaderCopy: {
-    flex: 1,
-    gap: 6,
+    gap: 2,
   },
   modalTitle: {
     color: tokens.colors.ink,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  modalSubtitle: {
-    color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  pickerTitle: {
-    color: tokens.colors.ink,
     fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "800",
-    letterSpacing: -0.7,
+    lineHeight: 26,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
   },
-  pickerSubtitle: {
+  stepCaption: {
     color: tokens.colors.muted,
     fontSize: 13,
-    lineHeight: 20,
+    fontFamily: tokens.font.medium,
   },
   closeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: tokens.colors.panel,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
-  pickerBody: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  dateTimePicker: {
-    alignSelf: "stretch",
-    backgroundColor: "#fff",
-    borderRadius: 24,
-  },
-  pickerFooter: {
+  progressRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 6,
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
+    paddingBottom: 4,
+  },
+  progressSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.borderStrong,
+  },
+  progressSegmentDone: {
+    backgroundColor: tokens.colors.brand,
   },
   modalScroll: {
     flex: 1,
   },
   modalContent: {
-    flexGrow: 1,
     paddingHorizontal: 20,
-    paddingBottom: 40,
-    gap: 14,
+    paddingTop: 12,
+    paddingBottom: 24,
+    gap: 16,
   },
-  modalSection: {
-    gap: 12,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-  },
-  modalSectionLabel: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-  },
-  templateRail: {
+  modalFooter: {
+    flexDirection: "row",
     gap: 10,
-    paddingRight: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+    backgroundColor: tokens.colors.surface,
   },
-  templateCard: {
-    width: 240,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-    gap: 8,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+  footerSecondary: {
+    minWidth: 112,
+    minHeight: 56,
   },
-  templateBadgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  templateBadge: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#eefad1",
-    color: "#699d00",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    textTransform: "uppercase",
-  },
-  templateCategory: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#f3f6fa",
-    color: tokens.colors.muted,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    textTransform: "uppercase",
-  },
-  templateCardActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-  },
-  templateTitle: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  templateTitleActive: {
-    color: "#fff",
-  },
-  templateBody: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  templateBodyActive: {
-    color: "rgba(255,255,255,0.8)",
-  },
-  templateHint: {
-    color: tokens.colors.brandDeep,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  formGroup: {
-    gap: 8,
-  },
-  formRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  formColumn: {
+  footerPrimary: {
     flex: 1,
+  },
+  fieldGroup: {
     gap: 8,
   },
   fieldLabel: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  fieldInput: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: tokens.colors.ink,
-    fontSize: 15,
-  },
-  fieldInputTall: {
-    minHeight: 128,
-  },
-  fieldInputMedium: {
-    minHeight: 104,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   fieldHelp: {
     color: tokens.colors.muted,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
+    fontFamily: tokens.font.regular,
   },
-  pickerField: {
-    minHeight: 54,
-    borderRadius: 18,
+  inputShell: {
+    height: 52,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: tokens.colors.surfaceSoft,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+  },
+  input: {
+    height: 50,
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
+  },
+  textArea: {
+    minHeight: 120,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: tokens.colors.surfaceSoft,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
+  },
+  pickerField: {
+    height: 52,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: tokens.colors.surfaceSoft,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2788,235 +2245,95 @@ const styles = StyleSheet.create({
   },
   pickerFieldText: {
     color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
   },
   pickerFieldPlaceholder: {
-    color: tokens.colors.mutedSoft,
-    fontWeight: "600",
+    color: tokens.colors.muted,
   },
-  choiceRail: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  choiceWrap: {
+  optionRow: {
+    minHeight: 56,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  choiceChip: {
-    borderRadius: tokens.radius.pill,
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  choiceChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+  optionRowActive: {
+    borderColor: tokens.colors.inkDeep,
   },
-  choiceChipText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  choiceChipTextActive: {
-    color: "#fff",
-  },
-  deliveryCard: {
-    width: "48%",
-    minWidth: 148,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    padding: 16,
-    gap: 6,
-  },
-  deliveryCardActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
-  },
-  deliveryCardTitle: {
+  optionTitle: {
     color: tokens.colors.ink,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: tokens.font.semibold,
   },
-  deliveryCardTitleActive: {
-    color: "#fff",
+  check: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  deliveryCardBody: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+  checkActive: {
+    borderColor: tokens.colors.brand,
+    backgroundColor: tokens.colors.brand,
   },
-  deliveryCardBodyActive: {
-    color: "rgba(255,255,255,0.82)",
-  },
-  summaryBox: {
-    minHeight: 96,
-    borderRadius: tokens.radius.md,
+  reviewCard: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    backgroundColor: "#f8fbff",
     paddingHorizontal: 14,
-    paddingVertical: 14,
+  },
+  reviewRow: {
+    flexDirection: "row",
     justifyContent: "space-between",
-    gap: 10,
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 12,
   },
-  summaryText: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "700",
+  reviewRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
   },
-  summaryHint: {
+  reviewLabel: {
+    width: 88,
     color: tokens.colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  checklistCard: {
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#f7fce9",
-    borderWidth: 1,
-    borderColor: "#d9efbb",
-    padding: 16,
-    gap: 10,
-  },
-  checklistTitle: {
-    color: tokens.colors.ink,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: tokens.font.regular,
+  },
+  reviewValue: {
+    flex: 1,
+    color: tokens.colors.ink,
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: tokens.font.semibold,
+    textAlign: "right",
   },
   checklistRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   checklistText: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  reviewCard: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-    gap: 14,
-  },
-  reviewRow: {
-    gap: 4,
-  },
-  reviewLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  reviewValue: {
-    color: tokens.colors.ink,
     fontSize: 15,
-    lineHeight: 22,
-    fontWeight: "700",
+    fontFamily: tokens.font.regular,
   },
-  reviewDescription: {
-    color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 22,
+  pickerBody: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
-  emptyTitle: {
-    color: tokens.colors.ink,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  emptyPanel: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-    gap: 8,
-  },
-  emptyText: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  modalFooter: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-  },
-  composerFooterRow: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-  },
-  secondaryButton: {
-    minHeight: 54,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingHorizontal: 22,
-    minWidth: 112,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  primaryActionWide: {
-    flex: 1,
-    minHeight: 54,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.ink,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
-  },
-  composerSubmitButton: {
-    flex: 1,
-    minHeight: 54,
-  },
-  buttonDisabled: {
-    opacity: 0.45,
-  },
-  modalErrorText: {
-    color: tokens.colors.danger,
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-  errorText: {
-    color: "#d44c3f",
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-  loadingText: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    textAlign: "center",
+  dateTimePicker: {
+    alignSelf: "stretch",
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
   },
 });

@@ -25,18 +25,24 @@ export function LoginScreen() {
 
   return (
     <AuthShell
-      eyebrow="Welcome back"
-      title="Sign in and pick up where you left off"
-      subtitle="Your bookings, saved providers, and request updates are all waiting here."
+      title="Welcome back"
       heroImage={require("../../../assets/bookmiz/barber.png")}
-      brandTagline="Book beautifully"
+      footer={
+        <View style={styles.rowCenter}>
+          <Text style={styles.helper}>New here? </Text>
+          <Pressable onPress={() => router.push("/signup")} accessibilityRole="link">
+            <Text style={styles.link}>Create an account</Text>
+          </Pressable>
+        </View>
+      }
     >
       <AuthField
-        label="Email"
-        placeholder="email@domain.com"
+        label="Email address"
+        placeholder="you@email.com"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
+        autoComplete="email"
       />
       <AuthField
         label="Password"
@@ -44,20 +50,32 @@ export function LoginScreen() {
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="password"
+        labelAccessory={
+          <Pressable onPress={() => router.push("/forgot-password")} accessibilityRole="link">
+            <Text style={styles.inlineLink}>Forgot?</Text>
+          </Pressable>
+        }
       />
 
-      <Pressable onPress={() => router.push("/forgot-password")}>
-        <Text style={styles.inlineLink}>Forgot password?</Text>
-      </Pressable>
+      {session.authError ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {session.authError}
+          </Text>
+        </View>
+      ) : null}
 
       <AuthButton
-        label={isSubmitting ? "Signing in..." : "Login"}
-        disabled={isSubmitting}
+        label="Log in"
+        icon="arrow-right"
+        loading={isSubmitting}
+        disabled={!email.trim() || !password}
         onPress={async () => {
           try {
             setIsSubmitting(true);
             await session.signIn({
-              email,
+              email: email.trim(),
               password,
               rememberMe: true,
             });
@@ -69,25 +87,15 @@ export function LoginScreen() {
           }
         }}
       />
-
-      <View style={styles.rowCenter}>
-        <Text style={styles.helper}>Don’t have an account?</Text>
-        <Pressable onPress={() => router.push("/signup")}>
-          <Text style={styles.link}> Register</Text>
-        </Pressable>
-      </View>
-
-      {session.authError ? <Text style={styles.errorText}>{session.authError}</Text> : null}
     </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
   inlineLink: {
-    alignSelf: "flex-end",
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
+    color: tokens.colors.inkDeep,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   rowCenter: {
     flexDirection: "row",
@@ -96,17 +104,25 @@ const styles = StyleSheet.create({
   },
   helper: {
     color: tokens.colors.muted,
-    fontSize: 13,
+    fontSize: 15,
+    fontFamily: tokens.font.regular,
   },
   link: {
-    color: tokens.colors.brandDeep,
-    fontSize: 13,
-    fontWeight: "800",
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 12,
   },
   errorText: {
-    color: "#d44c3f",
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: "center",
+    color: tokens.colors.danger,
+    fontSize: 14,
+    fontFamily: tokens.font.regular,
+    lineHeight: 20,
   },
 });

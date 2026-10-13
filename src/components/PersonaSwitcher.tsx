@@ -13,9 +13,11 @@ export function PersonaSwitcher({
   onChange: (persona: PersonaMode) => void;
 }) {
   return (
-    <View style={styles.shell}>
+    <View style={styles.shell} accessibilityRole="tablist">
       <Pressable
         onPress={() => onChange("customer")}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: activePersona === "customer" }}
         style={[
           styles.segment,
           activePersona === "customer" ? styles.segmentActive : null,
@@ -33,6 +35,8 @@ export function PersonaSwitcher({
       <Pressable
         disabled={!canUseAgentMode}
         onPress={() => onChange("agent")}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: activePersona === "agent", disabled: !canUseAgentMode }}
         style={[
           styles.segment,
           activePersona === "agent" ? styles.segmentActive : null,
@@ -56,17 +60,20 @@ const styles = StyleSheet.create({
   shell: {
     flexDirection: "row",
     alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: tokens.colors.navySoft,
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 5,
-    gap: 5,
+    borderColor: "rgba(255,255,255,0.14)",
+    padding: 4,
+    gap: 4,
   },
   segment: {
+    minHeight: 40,
+    minWidth: 104,
     borderRadius: tokens.radius.pill,
     paddingHorizontal: 16,
-    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
   },
   segmentActive: {
     backgroundColor: "#ffffff",
@@ -75,12 +82,12 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   segmentText: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    color: tokens.colors.onNavyMuted,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   segmentTextActive: {
-    color: tokens.colors.ink,
+    color: tokens.colors.inkDeep,
+    fontFamily: tokens.font.bold,
   },
 });

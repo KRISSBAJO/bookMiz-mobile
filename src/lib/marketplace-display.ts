@@ -16,20 +16,43 @@ const bundledMarketplaceImages: Record<string, ImageSourcePropType> = {
   "/Barber.png": require("../../assets/bookmiz/barber.png"),
 };
 
-export function formatMarketplacePrice(value?: number | null, fallback?: string | null) {
-  if (fallback) {
-    return fallback;
+const PRICE_TIER_LABELS: Record<string, string> = {
+  $: "Budget friendly",
+  $$: "Mid-range",
+  $$$: "Premium",
+  $$$$: "Luxury",
+};
+
+/** Turns a "$$"-style tier into words; other labels pass through unchanged. */
+export function formatPriceTier(label?: string | null) {
+  if (!label) {
+    return null;
+  }
+  return PRICE_TIER_LABELS[label.trim()] ?? label;
+}
+
+/**
+ * Real amount first; the tier label ("$$") only when no amount is known.
+ * `currencyCode` defaults to USD because all marketplace prices are stored in cents of the provider's currency.
+ */
+export function formatMarketplacePrice(
+  value?: number | null,
+  fallback?: string | null,
+  currencyCode: string = "USD",
+) {
+  if (value !== null && value !== undefined) {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currencyCode,
+        maximumFractionDigits: 0,
+      }).format(value / 100);
+    } catch {
+      return `${currencyCode} ${Math.round(value / 100)}`;
+    }
   }
 
-  if (value === null || value === undefined) {
-    return "Price on request";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value / 100);
+  return formatPriceTier(fallback) ?? "Price on request";
 }
 
 export function formatMarketplaceDuration(minutes?: number | null) {

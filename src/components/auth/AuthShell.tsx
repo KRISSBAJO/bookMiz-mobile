@@ -1,10 +1,12 @@
 import { FontAwesome6 } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { PropsWithChildren, ReactNode } from "react";
 import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,27 +17,46 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { tokens } from "@/src/theme/tokens";
 
 type AuthShellProps = PropsWithChildren<{
-  eyebrow?: string;
+  /** Short headline drawn over the photo. One line is ideal. */
   title: string;
-  subtitle: string;
-  brandTagline?: string;
+  /** Optional one-line helper under the title, on the white sheet. */
+  subtitle?: string;
   heroImage?: any;
+  /** Replaces the photo hero entirely (Welcome uses this). */
   heroMedia?: ReactNode;
-  topAccent?: ReactNode;
+  heroHeight?: number;
+  showBack?: boolean;
   footer?: ReactNode;
 }>;
 
+export function BrandMark({ size = 30, light = true }: { size?: number; light?: boolean }) {
+  return (
+    <View style={styles.brandRow}>
+      <View style={[styles.brandMark, { width: size, height: size, borderRadius: size * 0.3 }]}>
+        <Image
+          source={require("../../../assets/bookmiz/logo.png")}
+          style={{ width: size * 0.6, height: size * 0.6, resizeMode: "contain" }}
+        />
+      </View>
+      <Text style={[styles.brandTitle, { fontSize: size * 0.7, color: light ? "#ffffff" : tokens.colors.ink }]}>
+        Book<Text style={{ color: tokens.colors.brand }}>Miz</Text>
+      </Text>
+    </View>
+  );
+}
+
 export function AuthShell({
-  eyebrow,
   title,
   subtitle,
-  brandTagline = "Beauty, wellness & care",
   heroImage,
   heroMedia,
-  topAccent,
+  heroHeight = 300,
+  showBack = true,
   footer,
   children,
 }: AuthShellProps) {
+  const router = useRouter();
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -46,56 +67,44 @@ export function AuthShell({
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           bounces={false}
         >
-          <View style={styles.hero}>
-            <SafeAreaView>
-              <View style={styles.heroInner}>
-                <View style={styles.brandChip}>
-                  <View style={styles.brandMark}>
-                    <Image
-                      source={require("../../../assets/bookmiz/logo.png")}
-                      style={styles.brandLogo}
-                    />
-                  </View>
-                  <View style={styles.brandBody}>
-                    <Text style={styles.brandTitle}>BookMiz</Text>
-                    <Text style={styles.brandCaption}>{brandTagline}</Text>
-                  </View>
-                </View>
+          <View style={[styles.hero, { height: heroHeight }]}>
+            {heroMedia ? (
+              heroMedia
+            ) : heroImage ? (
+              <Image source={heroImage} style={styles.heroImage} />
+            ) : null}
+            <View style={styles.heroShadeTop} />
+            <View style={styles.heroShadeBottom} />
 
-                {heroMedia ? (
-                  <View style={styles.heroFrame}>{heroMedia}</View>
-                ) : heroImage ? (
-                  <View style={styles.heroFrame}>
-                    <Image source={heroImage} style={styles.heroImage} />
-                    <View style={styles.heroImageOverlay} />
-                    <View style={styles.heroBubbleLeft}>
-                      <FontAwesome6
-                        name="store"
-                        size={16}
-                        color="#7a2cf2"
-                      />
-                    </View>
-                    <View style={styles.heroBubbleRight}>
-                      <FontAwesome6
-                        name="sliders"
-                        size={16}
-                        color="#6f5e1c"
-                      />
-                    </View>
-                  </View>
-                ) : null}
-
-                {topAccent ? <View style={styles.topAccent}>{topAccent}</View> : null}
+            <SafeAreaView edges={["top"]} style={styles.heroSafe}>
+              <View style={styles.heroTopRow}>
+                {showBack && router.canGoBack() ? (
+                  <Pressable
+                    onPress={() => router.back()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                    style={styles.backButton}
+                  >
+                    <FontAwesome6 name="chevron-left" size={16} color="#ffffff" />
+                  </Pressable>
+                ) : (
+                  <View style={styles.backButtonSpacer} />
+                )}
+                <BrandMark />
+                <View style={styles.backButtonSpacer} />
               </View>
             </SafeAreaView>
+
+            <View style={styles.heroTitleWrap}>
+              <Text style={styles.heroTitle}>{title}</Text>
+            </View>
           </View>
 
           <View style={styles.sheet}>
-            {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-            <Text style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
+            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
             <View style={styles.body}>{children}</View>
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </View>
@@ -108,7 +117,7 @@ export function AuthShell({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: tokens.colors.surface,
+    backgroundColor: tokens.colors.inkDeep,
   },
   flex: {
     flex: 1,
@@ -117,128 +126,97 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   hero: {
-    backgroundColor: tokens.colors.inkDeep,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 34,
-  },
-  heroInner: {
-    gap: 18,
-  },
-  brandChip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  brandMark: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  brandLogo: {
-    width: 19,
-    height: 19,
-    resizeMode: "contain",
-  },
-  brandBody: {
-    gap: 2,
-  },
-  brandTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: -0.2,
-  },
-  brandCaption: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  heroFrame: {
-    height: 286,
-    borderRadius: 34,
+    backgroundColor: tokens.colors.navySoft,
     overflow: "hidden",
-    backgroundColor: "#20304d",
+    justifyContent: "space-between",
   },
   heroImage: {
+    ...StyleSheet.absoluteFill,
     width: "100%",
     height: "100%",
+    resizeMode: "cover",
   },
-  heroImageOverlay: {
+  heroShadeTop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.12)",
+    backgroundColor: "rgba(16,39,72,0.35)",
   },
-  heroBubbleLeft: {
+  heroShadeBottom: {
     position: "absolute",
-    left: 18,
-    bottom: 18,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#fff",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 130,
+    backgroundColor: "rgba(16,39,72,0.55)",
+  },
+  heroSafe: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
-  heroBubbleRight: {
-    position: "absolute",
-    right: 18,
-    top: 18,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#fff6d8",
+  backButtonSpacer: {
+    width: 40,
+    height: 40,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  brandMark: {
+    backgroundColor: tokens.colors.brand,
     alignItems: "center",
     justifyContent: "center",
   },
-  topAccent: {
-    marginTop: -4,
+  brandTitle: {
+    fontFamily: tokens.font.displayBold,
+    letterSpacing: -0.5,
+  },
+  heroTitleWrap: {
+    paddingHorizontal: 24,
+    paddingBottom: 44,
+  },
+  heroTitle: {
+    color: "#ffffff",
+    fontSize: 28,
+    lineHeight: 32,
+    fontFamily: tokens.font.display,
+    letterSpacing: -1,
   },
   sheet: {
     flex: 1,
-    marginTop: -20,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    backgroundColor: tokens.colors.surfaceSoft,
+    marginTop: -24,
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: "#ffffff",
     paddingHorizontal: 24,
-    paddingTop: 26,
-    paddingBottom: 34,
-  },
-  eyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 12,
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-    fontWeight: "800",
-    marginBottom: 10,
-  },
-  title: {
-    color: tokens.colors.ink,
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: "800",
-    letterSpacing: -1,
+    paddingTop: 24,
+    paddingBottom: 32,
   },
   subtitle: {
-    marginTop: 10,
     color: tokens.colors.muted,
-    fontSize: 15,
-    lineHeight: 23,
+    fontSize: 16,
+    lineHeight: 24,
+    fontFamily: tokens.font.regular,
+    marginBottom: 4,
   },
   body: {
-    marginTop: 24,
+    marginTop: 12,
     gap: 16,
   },
   footer: {
-    marginTop: 22,
+    marginTop: "auto",
+    paddingTop: 24,
   },
 });

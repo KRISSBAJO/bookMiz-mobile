@@ -1,6 +1,6 @@
-import { FontAwesome6 } from "@expo/vector-icons";
+﻿import { FontAwesome6 } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
-import type { ColorValue } from "react-native";
+import { View, type ColorValue } from "react-native";
 
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
@@ -8,11 +8,26 @@ import { tokens } from "@/src/theme/tokens";
 function TabIcon({
   color,
   name,
+  focused,
 }: {
   color: ColorValue;
   name: React.ComponentProps<typeof FontAwesome6>["name"];
+  focused: boolean;
 }) {
-  return <FontAwesome6 name={name} size={18} color={color} />;
+  return (
+    <View
+      style={{
+        width: 44,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: focused ? tokens.colors.brandSoft : "transparent",
+      }}
+    >
+      <FontAwesome6 name={name} size={17} color={color} />
+    </View>
+  );
 }
 
 export default function TabLayout() {
@@ -33,18 +48,19 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: tokens.colors.ink,
+        tabBarActiveTintColor: tokens.colors.inkDeep,
         tabBarInactiveTintColor: tokens.colors.muted,
         tabBarStyle: {
           backgroundColor: "#fff",
           borderTopColor: tokens.colors.border,
-          height: 86,
-          paddingTop: 10,
-          paddingBottom: 14,
+          height: 84,
+          paddingTop: 8,
+          paddingBottom: 12,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: "700",
+          fontWeight: "600",
+          marginTop: 2,
         },
       }}
     >
@@ -52,14 +68,14 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color }) => <TabIcon color={color} name="house" />,
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="house" />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
           title: "Explore",
-          tabBarIcon: ({ color }) => <TabIcon color={color} name="compass" />,
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="compass" />,
         }}
       />
       <Tabs.Screen
@@ -67,9 +83,10 @@ export default function TabLayout() {
         options={{
           title: workbenchTitle,
           tabBarLabel: workbenchTitle,
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}
+              focused={focused}
               name={session.activePersona === "agent" ? "briefcase" : "list-check"}
             />
           ),
@@ -79,14 +96,14 @@ export default function TabLayout() {
         name="inbox"
         options={{
           title: "Inbox",
-          tabBarIcon: ({ color }) => <TabIcon color={color} name="comment-dots" />,
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="comment-dots" />,
         }}
       />
       <Tabs.Screen
         name="account"
         options={{
           title: "Account",
-          tabBarIcon: ({ color }) => <TabIcon color={color} name="user-large" />,
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="user-large" />,
         }}
       />
     </Tabs>

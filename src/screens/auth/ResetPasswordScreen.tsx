@@ -30,9 +30,7 @@ export function ResetPasswordScreen() {
 
   return (
     <AuthShell
-      eyebrow="Reset password"
       title="Choose a new password"
-      subtitle="Keep it different from your previously used passwords and make it strong enough for future sign-ins."
       heroImage={require("../../../assets/bookmiz/manicure.png")}
     >
       <AuthField
@@ -41,6 +39,7 @@ export function ResetPasswordScreen() {
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="new-password"
       />
       <AuthField
         label="Confirm password"
@@ -48,6 +47,7 @@ export function ResetPasswordScreen() {
         value={confirmPassword}
         onChangeText={setConfirmPassword}
         secureTextEntry
+        autoComplete="new-password"
         errorText={
           confirmPassword.length > 0 && password !== confirmPassword
             ? "Passwords do not match."
@@ -68,8 +68,11 @@ export function ResetPasswordScreen() {
           </View>
         ))}
       </View>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <AuthButton
-        label={isSubmitting ? "Updating password..." : "Update password"}
+        label="Update password"
+        icon="arrow-right"
+        loading={isSubmitting}
         disabled={
           isSubmitting ||
           !params.token || !params.email ||
@@ -102,7 +105,6 @@ export function ResetPasswordScreen() {
           }
         }}
       />
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </AuthShell>
   );
 }
@@ -116,27 +118,27 @@ const styles = StyleSheet.create({
   ruleChip: {
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
     backgroundColor: "#fff",
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
   },
   ruleChipOk: {
-    borderColor: "#7ccf90",
-    backgroundColor: "#effaf2",
+    borderColor: tokens.colors.successSoft,
+    backgroundColor: tokens.colors.successSoft,
   },
   ruleText: {
     color: tokens.colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 13,
+    fontFamily: tokens.font.semibold,
   },
   ruleTextOk: {
     color: tokens.colors.success,
   },
   errorText: {
-    color: "#d44c3f",
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: "center",
+    color: tokens.colors.danger,
+    fontSize: 14,
+    fontFamily: tokens.font.regular,
+    lineHeight: 20,
   },
 });

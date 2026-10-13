@@ -1,13 +1,16 @@
-import { Pressable, StyleSheet, Text, ViewStyle } from "react-native";
+import { FontAwesome6 } from "@expo/vector-icons";
+import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from "react-native";
 
 import { tokens } from "@/src/theme/tokens";
 
 type AuthButtonProps = {
   label: string;
   onPress?: () => void | Promise<void>;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "navy";
   style?: ViewStyle;
   disabled?: boolean;
+  loading?: boolean;
+  icon?: React.ComponentProps<typeof FontAwesome6>["name"];
 };
 
 export function AuthButton({
@@ -16,29 +19,38 @@ export function AuthButton({
   variant = "primary",
   style,
   disabled = false,
+  loading = false,
+  icon,
 }: AuthButtonProps) {
+  const labelColor =
+    variant === "primary"
+      ? tokens.colors.inkDeep
+      : variant === "secondary"
+        ? tokens.colors.ink
+        : "#ffffff";
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
-      style={[
+      disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading }}
+      style={({ pressed }) => [
         styles.base,
-        variant === "primary" ? styles.primary : null,
-        variant === "secondary" ? styles.secondary : null,
-        variant === "ghost" ? styles.ghost : null,
+        styles[variant],
         disabled ? styles.disabled : null,
+        pressed ? styles.pressed : null,
         style,
       ]}
     >
-      <Text
-        style={[
-          styles.label,
-          variant === "primary" ? styles.labelPrimary : null,
-          variant !== "primary" ? styles.labelSecondary : null,
-        ]}
-      >
-        {label}
-      </Text>
+      {loading ? (
+        <ActivityIndicator color={labelColor} />
+      ) : (
+        <>
+          <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
+          {icon ? <FontAwesome6 name={icon} size={15} color={labelColor} /> : null}
+        </>
+      )}
     </Pressable>
   );
 }
@@ -46,36 +58,37 @@ export function AuthButton({
 const styles = StyleSheet.create({
   base: {
     minHeight: 56,
-    borderRadius: 18,
+    borderRadius: tokens.radius.md,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     paddingHorizontal: 18,
   },
+  pressed: {
+    opacity: 0.85,
+  },
   disabled: {
-    opacity: 0.55,
+    opacity: 0.5,
   },
   primary: {
     backgroundColor: tokens.colors.brand,
   },
+  navy: {
+    backgroundColor: tokens.colors.inkDeep,
+  },
   secondary: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
   },
   ghost: {
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderColor: "rgba(255,255,255,0.25)",
   },
   label: {
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  labelPrimary: {
-    color: tokens.colors.ink,
-  },
-  labelSecondary: {
-    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.bold,
   },
 });

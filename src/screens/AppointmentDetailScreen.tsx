@@ -1,7 +1,6 @@
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Linking,
@@ -15,6 +14,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { AuthButton } from "@/src/components/auth/AuthButton";
+import { Screen } from "@/src/components/Screen";
 import {
   cancelCustomerBooking,
   getCustomerBooking,
@@ -32,7 +33,6 @@ import {
   canCancelBooking,
   canRescheduleBooking,
   formatBookingDateLabel,
-  formatBookingDateTime,
   formatBookingMoney,
   formatBookingTimeLabel,
   formatMeetingProvider,
@@ -113,6 +113,13 @@ function formatSlotLabel(slot: PublicAvailabilitySlot) {
   )}`;
 }
 
+function formatSlotStart(slot: PublicAvailabilitySlot) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(slot.startAt));
+}
+
 function buildCalendarDays(
   monthStartValue: string,
   selectedValue: string,
@@ -141,18 +148,41 @@ function buildCalendarDays(
 function statusTone(status: CustomerBookingRecord["status"]) {
   switch (status) {
     case "CONFIRMED":
-      return styles.statusConfirmed;
+      return { pill: styles.statusConfirmed, text: styles.statusTextConfirmed };
     case "PENDING":
-      return styles.statusPending;
-    case "COMPLETED":
-      return styles.statusCompleted;
+      return { pill: styles.statusPending, text: styles.statusTextPending };
     case "CANCELLED":
-      return styles.statusCancelled;
+      return { pill: styles.statusCancelled, text: styles.statusTextCancelled };
     case "CHECKED_IN":
-      return styles.statusLive;
+      return { pill: styles.statusLive, text: styles.statusTextLive };
     default:
-      return styles.statusDefault;
+      return { pill: styles.statusDefault, text: styles.statusTextDefault };
   }
+}
+
+function statusLabel(status: CustomerBookingRecord["status"]) {
+  switch (status) {
+    case "CONFIRMED":
+      return "Confirmed";
+    case "PENDING":
+      return "Pending";
+    case "CHECKED_IN":
+      return "Checked in";
+    case "COMPLETED":
+      return "Completed";
+    case "CANCELLED":
+      return "Cancelled";
+    default:
+      return status;
+  }
+}
+
+function paymentTone(label: string) {
+  if (label === "Paid") return { pill: styles.statusConfirmed, text: styles.statusTextConfirmed };
+  if (label === "Unpaid" || label === "Refund pending") {
+    return { pill: styles.statusPending, text: styles.statusTextPending };
+  }
+  return { pill: styles.statusDefault, text: styles.statusTextDefault };
 }
 
 export function AppointmentDetailScreen() {
@@ -504,62 +534,95 @@ export function AppointmentDetailScreen() {
     }
   }, [booking, rescheduleReason, selectedSlotStartAt]);
 
-  const actionHints = useMemo(() => {
-    if (!booking) {
-      return [];
-    }
+  const paymentLabel = booking ? bookingPaymentLabel(booking) : "";
+  const paymentPill = paymentTone(paymentLabel);
+  const tone = booking ? statusTone(booking.status) : null;
+  const startDate = booking ? new Date(booking.startsAt) : null;
+  const locationLine =
+    booking?.channel === "VIDEO"
+      ? formatMeetingProvider(booking.meeting.provider)
+      : booking?.location?.name ||
+        `${booking?.location?.city ?? ""}${booking?.location?.stateCode ? `, ${booking.location.stateCode}` : ""}` ||
+        "Provider location";
+  const addressLine =
+    booking?.channel !== "VIDEO" && booking?.location
+      ? [booking.location.line1, [booking.location.city, booking.location.stateCode].filter(Boolean).join(", ")]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
 
-    const nextHints: string[] = [];
+  const headerAction = booking ? (
+    <Pressable
+      style={styles.headerAction}
+      onPress={() => router.push(`/providers/${booking.provider.slug}`)}
+      accessibilityRole="button"
+      accessibilityLabel="Open provider"
+    >
+      <Text style={styles.headerActionText}>Provider</Text>
+      <FontAwesome6 name="arrow-right" size={13} color={tokens.colors.ink} />
+    </Pressable>
+  ) : null;
 
-    if (hasActiveMeetingLink(booking.meeting)) {
-      nextHints.push("Join link ready");
-    }
-    if (canRescheduleBooking(booking)) {
-      nextHints.push("Reschedule available");
-    }
-    if (canCancelBooking(booking)) {
-      nextHints.push("Cancellation available");
-    }
-
-    return nextHints;
-  }, [booking]);
+  const showPaymentAction = Boolean(
+    booking &&
+      booking.paymentMode &&
+      booking.paymentStatus === "UNPAID" &&
+      ["PENDING", "CONFIRMED"].includes(booking.status),
+  );
 
   return (
     <View style={styles.root}>
-      <StatusBar style="light" />
+      <Screen
+        title="Appointment"
+        eyebrow={booking ? formatBookingDateLabel(booking.startsAt) : undefined}
+        action={headerAction}
+        refreshing={isLoading && Boolean(booking)}
+        onRefresh={() => void loadBooking()}
+      >
+        {error ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText} accessibilityRole="alert">
+              {error}
+            </Text>
+            {!booking ? (
+              <Pressable onPress={() => void loadBooking()} accessibilityRole="button">
+                <Text style={styles.errorRetry}>Try again</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
 
-      {booking ? (
-        <>
-          <View style={styles.hero}>
-            <View style={styles.heroOverlay} />
-            <SafeAreaView style={styles.heroSafeArea} edges={["top"]}>
-              <View style={styles.heroChrome}>
-                <Pressable style={styles.heroButton} onPress={() => router.back()}>
-                  <FontAwesome6 name="arrow-left-long" size={16} color="#fff" />
-                  <Text style={styles.heroButtonText}>Back</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.heroButton}
-                  onPress={() => router.push(`/providers/${booking.provider.slug}`)}
-                >
-                  <FontAwesome6 name="shop" size={14} color="#fff" />
-                  <Text style={styles.heroButtonText}>Provider</Text>
-                </Pressable>
-              </View>
-            </SafeAreaView>
-
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroEyebrow}>Customer appointment</Text>
-              <Text style={styles.heroTitle}>{booking.service.name}</Text>
-              <Text style={styles.heroSubtitle}>
-                {booking.provider.displayName} · {formatBookingDateLabel(booking.startsAt)}
-              </Text>
-
-              <View style={styles.statusRow}>
-                <View style={[styles.statusPill, statusTone(booking.status)]}>
-                  <Text style={styles.statusText}>
-                    {booking.status.replaceAll("_", " ")}
+        {booking && startDate && tone ? (
+          <>
+            <View style={styles.heroCard}>
+              <View style={styles.heroCardRow}>
+                <View style={styles.dateTile}>
+                  <Text style={styles.dateTileWeekday}>
+                    {startDate.toLocaleDateString(undefined, { weekday: "short" })}
                   </Text>
+                  <Text style={styles.dateTileDay}>{startDate.getDate()}</Text>
+                  <Text style={styles.dateTileWeekday}>
+                    {startDate.toLocaleDateString(undefined, { month: "short" })}
+                  </Text>
+                </View>
+                <View style={styles.heroCardBody}>
+                  <Text style={styles.heroCardTitle} numberOfLines={2}>
+                    {booking.service.name}
+                  </Text>
+                  <Text style={styles.heroCardMeta} numberOfLines={1}>
+                    {booking.provider.displayName}
+                  </Text>
+                  <Text style={styles.heroCardMeta} numberOfLines={1}>
+                    {formatBookingTimeLabel(booking.startsAt)} · {booking.service.durationMinutes} min
+                    {booking.assignedStaff
+                      ? ` · ${booking.assignedStaff.displayName ?? booking.assignedStaff.firstName}`
+                      : ""}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.heroPills}>
+                <View style={[styles.statusPill, tone.pill]}>
+                  <Text style={[styles.statusText, tone.text]}>{statusLabel(booking.status)}</Text>
                 </View>
                 {isBookingLiveNow(booking) ? (
                   <View style={styles.livePill}>
@@ -568,175 +631,153 @@ export function AppointmentDetailScreen() {
                 ) : null}
               </View>
             </View>
-          </View>
 
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
-            {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
-
-            <Text accessibilityRole="text">Payment: {bookingPaymentLabel(booking)}{booking.paymentMode === 'test' ? ' (sandbox)' : ''}</Text>
-            <View style={styles.metricsRow}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>When</Text>
-                <Text style={styles.metricValue}>{formatBookingTimeLabel(booking.startsAt)}</Text>
-              </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Value</Text>
-                <Text style={styles.metricValue}>
-                  {formatBookingMoney(booking.totalPriceCents, booking.currencyCode)}
-                </Text>
-              </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Channel</Text>
-                <Text style={styles.metricValue}>
-                  {booking.channel === "VIDEO"
-                    ? formatMeetingProvider(booking.meeting.provider)
-                    : "In person"}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Appointment actions</Text>
-              <Text style={styles.panelSubtitle}>
-                Manage the booking from the same live customer record the web account uses.
-              </Text>
-
-              <View style={styles.actionHintsRow}>
-                {actionHints.length > 0 ? (
-                  actionHints.map((hint) => (
-                    <View key={hint} style={styles.hintBadge}>
-                      <Text style={styles.hintBadgeText}>{hint}</Text>
-                    </View>
-                  ))
-                ) : (
-                  <View style={styles.hintBadgeMuted}>
-                    <Text style={styles.hintBadgeMutedText}>
-                      This booking is locked to its current state.
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.actionButtons}>
-                {booking.paymentMode && booking.paymentStatus === "UNPAID" && ["PENDING", "CONFIRMED"].includes(booking.status) ? (
-                  <Pressable style={styles.primaryButton} disabled={Boolean(busyAction)} onPress={() => void continuePayment()}>
-                    <Text style={styles.primaryButtonText}>{busyAction === "payment" ? "Opening checkout…" : "Continue payment"}</Text>
-                  </Pressable>
-                ) : null}
-                {hasActiveMeetingLink(booking.meeting) ? (
-                  <Pressable
-                    style={styles.primaryButton}
-                    onPress={() => void Linking.openURL(booking.meeting.joinUrl!)}
-                  >
-                    <Text style={styles.primaryButtonText}>Join session</Text>
-                  </Pressable>
-                ) : null}
+            {showPaymentAction ? (
+              <AuthButton
+                label={busyAction === "payment" ? "Opening checkout…" : "Continue payment"}
+                disabled={Boolean(busyAction)}
+                loading={busyAction === "payment"}
+                onPress={() => void continuePayment()}
+              />
+            ) : null}
+            {hasActiveMeetingLink(booking.meeting) ? (
+              <AuthButton
+                label="Join video"
+                icon="video"
+                variant={showPaymentAction ? "navy" : "primary"}
+                onPress={() => void Linking.openURL(booking.meeting.joinUrl!)}
+              />
+            ) : null}
+            {canRescheduleBooking(booking) || canCancelBooking(booking) ? (
+              <View style={styles.actionRow}>
                 {canRescheduleBooking(booking) ? (
-                  <Pressable style={styles.secondaryButton} onPress={bootstrapReschedule}>
-                    <Text style={styles.secondaryButtonText}>Reschedule</Text>
-                  </Pressable>
+                  <AuthButton
+                    label="Reschedule"
+                    variant="secondary"
+                    style={styles.actionButton}
+                    onPress={bootstrapReschedule}
+                  />
                 ) : null}
                 {canCancelBooking(booking) ? (
                   <Pressable
-                    style={styles.destructiveButton}
+                    style={({ pressed }) => [styles.dangerGhost, styles.actionButton, pressed ? styles.pressed : null]}
                     onPress={() => setCancelOpen(true)}
+                    accessibilityRole="button"
                   >
-                    <Text style={styles.destructiveButtonText}>Cancel appointment</Text>
+                    <Text style={styles.dangerGhostText}>Cancel</Text>
                   </Pressable>
                 ) : null}
               </View>
+            ) : null}
+
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <FontAwesome6
+                  name={booking.channel === "VIDEO" ? "video" : "location-dot"}
+                  size={16}
+                  color={tokens.colors.ink}
+                />
+                <Text style={styles.sectionTitle}>
+                  {booking.channel === "VIDEO" ? "Video call" : "Location"}
+                </Text>
+              </View>
+              <Text style={styles.sectionValue}>{locationLine}</Text>
+              {addressLine ? <Text style={styles.sectionCaption}>{addressLine}</Text> : null}
+              {booking.channel === "VIDEO" && !hasActiveMeetingLink(booking.meeting) ? (
+                <Text style={styles.sectionCaption}>The join link appears here once it is ready.</Text>
+              ) : null}
             </View>
 
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Booking details</Text>
-              <View style={styles.detailGrid}>
-                <View style={styles.detailCard}>
-                  <Text style={styles.detailLabel}>Provider</Text>
-                  <Text style={styles.detailValue}>{booking.provider.displayName}</Text>
-                </View>
-                <View style={styles.detailCard}>
-                  <Text style={styles.detailLabel}>Date and time</Text>
-                  <Text style={styles.detailValue}>
-                    {formatBookingDateTime(booking.startsAt)}
-                  </Text>
-                </View>
-                <View style={styles.detailCard}>
-                  <Text style={styles.detailLabel}>Staff</Text>
-                  <Text style={styles.detailValue}>
-                    {booking.assignedStaff?.displayName || "Provider team"}
-                  </Text>
-                </View>
-                <View style={styles.detailCard}>
-                  <Text style={styles.detailLabel}>Location</Text>
-                  <Text style={styles.detailValue}>
-                    {booking.channel === "VIDEO"
-                      ? formatMeetingProvider(booking.meeting.provider)
-                      : booking.location?.name ||
-                        `${booking.location?.city ?? ""}${booking.location?.stateCode ? `, ${booking.location.stateCode}` : ""}` ||
-                        "Provider location"}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <FontAwesome6 name="credit-card" size={16} color={tokens.colors.ink} />
+                <Text style={styles.sectionTitle}>Payment</Text>
+              </View>
+              <View style={styles.paymentRow}>
+                <Text style={styles.paymentAmount}>
+                  {formatBookingMoney(booking.totalPriceCents, booking.currencyCode)}
+                </Text>
+                <View style={[styles.statusPill, paymentPill.pill]}>
+                  <Text style={[styles.statusText, paymentPill.text]}>
+                    {paymentLabel}
+                    {booking.paymentMode === "test" ? " (sandbox)" : ""}
                   </Text>
                 </View>
               </View>
-
-              {booking.notes ? (
-                <View style={styles.copyBlock}>
-                  <Text style={styles.copyBlockTitle}>Notes</Text>
-                  <Text style={styles.copyBlockBody}>{booking.notes}</Text>
-                </View>
-              ) : null}
-
-              {booking.cancelledReason ? (
-                <View style={styles.cancelledBlock}>
-                  <Text style={styles.copyBlockTitle}>Cancellation reason</Text>
-                  <Text style={styles.copyBlockBody}>{booking.cancelledReason}</Text>
-                </View>
+              {booking.depositCents ? (
+                <Text style={styles.sectionCaption}>
+                  Deposit {formatBookingMoney(booking.depositCents, booking.currencyCode)}
+                </Text>
               ) : null}
             </View>
 
-            {booking.documents.length > 0 ? (
-              <View style={styles.panel}>
-                <Text style={styles.panelTitle}>Uploaded documents</Text>
-                <Text style={styles.panelSubtitle}>
-                  Files already attached to this appointment.
-                </Text>
-
-                <View style={styles.documentList}>
-                  {booking.documents.map((document) => (
-                    <View key={document.id} style={styles.documentCard}>
-                      <View style={styles.documentIconWrap}>
-                        <FontAwesome6 name="file-lines" size={16} color={tokens.colors.ink} />
-                      </View>
-                      <View style={styles.documentCopy}>
-                        <Text style={styles.documentLabel}>
-                          {document.label || document.fileName}
-                        </Text>
-                        <Text style={styles.documentMeta}>
-                          {document.fileName} · {formatSecureDocumentSize(document.sizeBytes)}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
+            {booking.notes ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <FontAwesome6 name="note-sticky" size={16} color={tokens.colors.ink} />
+                  <Text style={styles.sectionTitle}>Notes</Text>
                 </View>
+                <Text style={styles.sectionBody}>{booking.notes}</Text>
               </View>
             ) : null}
-          </ScrollView>
-        </>
-      ) : (
-        <SafeAreaView style={styles.loadingState} edges={["top", "bottom"]}>
-          <Pressable style={styles.heroButton} onPress={() => router.back()}>
-            <FontAwesome6 name="arrow-left-long" size={16} color="#fff" />
-            <Text style={styles.heroButtonText}>Back</Text>
-          </Pressable>
-          <Text style={styles.loadingTitle}>
-            {isLoading ? "Loading appointment..." : "Appointment unavailable"}
-          </Text>
-          {error ? <Text style={styles.loadingCaption}>{error}</Text> : null}
-        </SafeAreaView>
-      )}
+
+            {booking.cancelledReason ? (
+              <View style={[styles.section, styles.sectionDanger]}>
+                <View style={styles.sectionHeader}>
+                  <FontAwesome6 name="xmark" size={16} color={tokens.colors.danger} />
+                  <Text style={[styles.sectionTitle, styles.sectionTitleDanger]}>Cancellation reason</Text>
+                </View>
+                <Text style={styles.sectionBody}>{booking.cancelledReason}</Text>
+              </View>
+            ) : null}
+
+            {booking.documents.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <FontAwesome6 name="file-lines" size={16} color={tokens.colors.ink} />
+                  <Text style={styles.sectionTitle}>Documents</Text>
+                </View>
+                {booking.documents.map((document, index) => (
+                  <View
+                    key={document.id}
+                    style={[styles.documentRow, index < booking.documents.length - 1 ? styles.rowDivider : null]}
+                  >
+                    <View style={styles.documentCopy}>
+                      <Text style={styles.documentLabel} numberOfLines={1}>
+                        {document.label || document.fileName}
+                      </Text>
+                      <Text style={styles.documentMeta} numberOfLines={1}>
+                        {document.fileName} · {formatSecureDocumentSize(document.sizeBytes)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : isLoading ? (
+          <>
+            <View style={styles.skeletonHero}>
+              <View style={styles.skeletonTile} />
+              <View style={styles.skeletonBody}>
+                <View style={styles.skeletonLineWide} />
+                <View style={styles.skeletonLine} />
+              </View>
+            </View>
+            <View style={styles.skeletonButton} />
+            <View style={[styles.skeletonSection, { opacity: 0.7 }]} />
+            <View style={[styles.skeletonSection, { opacity: 0.45 }]} />
+          </>
+        ) : (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Appointment unavailable</Text>
+            <Text style={styles.emptyBody}>It may have been removed or the link is wrong.</Text>
+            <Pressable style={styles.emptyAction} onPress={() => router.back()} accessibilityRole="button">
+              <Text style={styles.emptyActionText}>Go back</Text>
+            </Pressable>
+          </View>
+        )}
+      </Screen>
 
       <Modal
         visible={cancelOpen}
@@ -745,7 +786,12 @@ export function AppointmentDetailScreen() {
         onRequestClose={() => setCancelOpen(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setCancelOpen(false)} />
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setCancelOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          />
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
@@ -753,12 +799,14 @@ export function AppointmentDetailScreen() {
                 <View style={styles.modalHeaderCopy}>
                   <Text style={styles.modalTitle}>Cancel appointment</Text>
                   <Text style={styles.modalSubtitle}>
-                    This will update the live booking record and retire any active session access.
+                    The provider is told right away. Any video link stops working.
                   </Text>
                 </View>
                 <Pressable
                   style={styles.modalCloseButton}
                   onPress={() => setCancelOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
                 >
                   <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                 </Pressable>
@@ -767,24 +815,27 @@ export function AppointmentDetailScreen() {
                 value={cancelReason}
                 onChangeText={setCancelReason}
                 style={styles.textArea}
-                placeholder="Optional reason for cancellation"
-                placeholderTextColor={tokens.colors.mutedSoft}
+                placeholder="Reason (optional)"
+                placeholderTextColor={tokens.colors.muted}
                 multiline
                 textAlignVertical="top"
+                accessibilityLabel="Reason for cancelling"
               />
               <View style={styles.modalFooter}>
-                <Pressable
-                  style={styles.secondaryButton}
+                <AuthButton
+                  label="Keep booking"
+                  variant="secondary"
                   onPress={() => setCancelOpen(false)}
-                >
-                  <Text style={styles.secondaryButtonText}>Keep booking</Text>
-                </Pressable>
+                />
                 <Pressable
-                  style={styles.destructiveButton}
+                  style={({ pressed }) => [styles.dangerFilled, pressed ? styles.pressed : null]}
                   onPress={() => void handleCancel()}
+                  disabled={busyAction === "cancel"}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: busyAction === "cancel" }}
                 >
-                  <Text style={styles.destructiveButtonText}>
-                    {busyAction === "cancel" ? "Cancelling..." : "Confirm cancellation"}
+                  <Text style={styles.dangerFilledText}>
+                    {busyAction === "cancel" ? "Cancelling…" : "Cancel appointment"}
                   </Text>
                 </Pressable>
               </View>
@@ -800,20 +851,28 @@ export function AppointmentDetailScreen() {
         onRequestClose={() => setRescheduleOpen(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setRescheduleOpen(false)} />
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setRescheduleOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          />
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
               <View style={styles.modalHeader}>
                 <View style={styles.modalHeaderCopy}>
-                  <Text style={styles.modalTitle}>Reschedule appointment</Text>
+                  <Text style={styles.modalTitle}>Reschedule</Text>
                   <Text style={styles.modalSubtitle}>
-                    Choose only from the provider's live open days and times.
+                    Now {booking ? formatBookingDateLabel(booking.startsAt) : ""}
+                    {booking ? ` at ${formatBookingTimeLabel(booking.startsAt)}` : ""}
                   </Text>
                 </View>
                 <Pressable
                   style={styles.modalCloseButton}
                   onPress={() => setRescheduleOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
                 >
                   <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                 </Pressable>
@@ -824,66 +883,49 @@ export function AppointmentDetailScreen() {
                 contentContainerStyle={styles.rescheduleContent}
                 showsVerticalScrollIndicator={false}
               >
-                <View style={styles.selectionCard}>
-                  <Text style={styles.selectionEyebrow}>Current booking</Text>
-                  <Text style={styles.selectionTitle}>
-                    {booking ? formatBookingDateLabel(booking.startsAt) : ""}
-                  </Text>
-                  <Text style={styles.selectionBody}>
-                    {booking ? formatBookingTimeLabel(booking.startsAt) : ""}
-                    {booking?.assignedStaff?.displayName
-                      ? ` · ${booking.assignedStaff.displayName}`
-                      : ""}
-                  </Text>
-                </View>
-
-                <View style={styles.availabilityCard}>
-                  <View style={styles.availabilityHeader}>
-                    <View>
-                      <Text style={styles.selectorLabel}>Pick a day</Text>
-                      <Text style={styles.availabilityTitle}>
-                        {formatCalendarMonth(calendarMonth)}
-                      </Text>
-                    </View>
+                <View style={styles.calendarCard}>
+                  <View style={styles.calendarHeader}>
+                    <Text style={styles.calendarTitle}>{formatCalendarMonth(calendarMonth)}</Text>
                     <View style={styles.monthControls}>
                       <Pressable
                         style={styles.monthButton}
                         onPress={() => stepMonth(-1)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Previous month"
                       >
-                        <FontAwesome6
-                          name="chevron-left"
-                          size={14}
-                          color={tokens.colors.ink}
-                        />
+                        <FontAwesome6 name="chevron-left" size={14} color={tokens.colors.ink} />
                       </Pressable>
                       <Pressable
                         style={styles.monthButton}
                         onPress={() => stepMonth(1)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Next month"
                       >
-                        <FontAwesome6
-                          name="chevron-right"
-                          size={14}
-                          color={tokens.colors.ink}
-                        />
+                        <FontAwesome6 name="chevron-right" size={14} color={tokens.colors.ink} />
                       </Pressable>
                     </View>
                   </View>
 
                   <View style={styles.weekdayRow}>
-                    {["S", "M", "T", "W", "T", "F", "S"].map((label) => (
-                      <Text key={label} style={styles.weekdayLabel}>
+                    {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
+                      <Text key={`${label}-${index}`} style={styles.weekdayLabel}>
                         {label}
                       </Text>
                     ))}
                   </View>
 
                   {monthAvailabilityLoading ? (
-                    <Text style={styles.loadingCopy}>Loading availability...</Text>
+                    <View style={styles.calendarGrid}>
+                      {calendarDays.map((day) => (
+                        <View key={day.value} style={[styles.dayCell, styles.dayCellSkeleton]} />
+                      ))}
+                    </View>
                   ) : (
                     <View style={styles.calendarGrid}>
                       {calendarDays.map((day) => {
                         const daySummary = monthAvailabilityByDate.get(day.value);
                         const isAvailable = Boolean(day.inMonth && !day.isPast && daySummary);
+                        const isSelected = day.isSelected && isAvailable;
                         return (
                           <Pressable
                             key={day.value}
@@ -891,9 +933,12 @@ export function AppointmentDetailScreen() {
                               styles.dayCell,
                               !day.inMonth ? styles.dayCellMuted : null,
                               isAvailable ? styles.dayCellAvailable : null,
-                              day.isSelected && isAvailable ? styles.dayCellSelected : null,
+                              isSelected ? styles.dayCellSelected : null,
                             ]}
                             disabled={!isAvailable}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: !isAvailable, selected: isSelected }}
+                            accessibilityLabel={formatCalendarDate(day.value)}
                             onPress={() => {
                               setSelectedDate(day.value);
                               setSelectedSlotStartAt(null);
@@ -903,20 +948,17 @@ export function AppointmentDetailScreen() {
                             <Text
                               style={[
                                 styles.dayCellLabel,
-                                !day.inMonth ? styles.dayCellLabelMuted : null,
                                 isAvailable ? styles.dayCellLabelAvailable : null,
-                                day.isSelected && isAvailable
-                                  ? styles.dayCellLabelSelected
-                                  : null,
+                                isSelected ? styles.dayCellLabelSelected : null,
                               ]}
                             >
                               {day.label}
                             </Text>
-                            {daySummary ? (
+                            {daySummary && day.inMonth ? (
                               <View
                                 style={[
-                                  styles.dayAvailabilityDot,
-                                  day.isSelected ? styles.dayAvailabilityDotSelected : null,
+                                  styles.dayDot,
+                                  isSelected ? styles.dayDotSelected : null,
                                 ]}
                               />
                             ) : null}
@@ -927,19 +969,14 @@ export function AppointmentDetailScreen() {
                   )}
                 </View>
 
-                <View style={styles.availabilityCard}>
-                  <Text style={styles.selectorLabel}>Pick a time</Text>
-                  <Text style={styles.availabilityTitle}>
-                    {formatCalendarDate(selectedDate)}
-                  </Text>
-                  <Text style={styles.panelSubtitle}>
-                    {selectedSlot
-                      ? `Selected ${formatSlotLabel(selectedSlot)}`
-                      : "Choose from the provider's open times for this day."}
-                  </Text>
-
+                <View style={styles.slotsBlock}>
+                  <Text style={styles.slotsTitle}>{formatCalendarDate(selectedDate)}</Text>
                   {slotsLoading ? (
-                    <Text style={styles.loadingCopy}>Loading times...</Text>
+                    <View style={styles.slotGrid}>
+                      {[0, 1, 2, 3].map((index) => (
+                        <View key={index} style={[styles.slotChip, styles.slotChipSkeleton]} />
+                      ))}
+                    </View>
                   ) : slots.length > 0 ? (
                     <View style={styles.slotGrid}>
                       {slots.map((slot) => {
@@ -947,76 +984,59 @@ export function AppointmentDetailScreen() {
                         return (
                           <Pressable
                             key={slot.startAt}
-                            style={[
-                              styles.slotButton,
-                              isSelected ? styles.slotButtonSelected : null,
-                            ]}
+                            style={[styles.slotChip, isSelected ? styles.slotChipSelected : null]}
                             onPress={() => setSelectedSlotStartAt(slot.startAt)}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: isSelected }}
+                            accessibilityLabel={formatSlotLabel(slot)}
                           >
-                            <Text
-                              style={[
-                                styles.slotLabel,
-                                isSelected ? styles.slotLabelSelected : null,
-                              ]}
-                            >
-                              {formatSlotLabel(slot)}
+                            <Text style={[styles.slotLabel, isSelected ? styles.slotLabelSelected : null]}>
+                              {formatSlotStart(slot)}
                             </Text>
-                            {(slot.staffOptions?.length ?? 0) > 1 ? (
-                              <Text
-                                style={[
-                                  styles.slotMeta,
-                                  isSelected ? styles.slotMetaSelected : null,
-                                ]}
-                              >
-                                {slot.staffOptions?.length ?? 0} team options
-                              </Text>
-                            ) : null}
                           </Pressable>
                         );
                       })}
                     </View>
                   ) : (
-                    <View style={styles.emptyAvailabilityState}>
-                      <Text style={styles.emptyAvailabilityTitle}>
-                        No open slots for this selection
-                      </Text>
-                      <Text style={styles.emptyAvailabilityBody}>
-                        Try a different day or month to find the next available opening.
-                      </Text>
+                    <View style={styles.emptyCard}>
+                      <Text style={styles.emptyTitle}>No open times</Text>
+                      <Text style={styles.emptyBody}>Pick another day.</Text>
                     </View>
                   )}
+                  {selectedSlot ? (
+                    <Text style={styles.slotSummary}>
+                      New time: {formatSlotLabel(selectedSlot)}
+                      {(selectedSlot.staffOptions?.length ?? 0) > 1
+                        ? ` · ${selectedSlot.staffOptions?.length} staff available`
+                        : ""}
+                    </Text>
+                  ) : null}
                 </View>
 
                 <TextInput
                   value={rescheduleReason}
                   onChangeText={setRescheduleReason}
                   style={styles.textArea}
-                  placeholder="Optional note for the provider"
-                  placeholderTextColor={tokens.colors.mutedSoft}
+                  placeholder="Note for the provider (optional)"
+                  placeholderTextColor={tokens.colors.muted}
                   multiline
                   textAlignVertical="top"
+                  accessibilityLabel="Note for the provider"
                 />
               </ScrollView>
 
               <View style={styles.modalFooter}>
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() => setRescheduleOpen(false)}
-                >
-                  <Text style={styles.secondaryButtonText}>Keep current time</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    !selectedSlotStartAt ? styles.buttonDisabled : null,
-                  ]}
-                  disabled={!selectedSlotStartAt}
+                <AuthButton
+                  label={busyAction === "reschedule" ? "Saving…" : "Confirm new time"}
+                  disabled={!selectedSlotStartAt || busyAction === "reschedule"}
+                  loading={busyAction === "reschedule"}
                   onPress={() => void handleReschedule()}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {busyAction === "reschedule" ? "Saving..." : "Save new slot"}
-                  </Text>
-                </Pressable>
+                />
+                <AuthButton
+                  label="Keep current time"
+                  variant="secondary"
+                  onPress={() => setRescheduleOpen(false)}
+                />
               </View>
             </SafeAreaView>
           </View>
@@ -1031,364 +1051,340 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: tokens.colors.surface,
   },
-  hero: {
-    minHeight: 276,
-    backgroundColor: tokens.colors.ink,
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.92)",
-  },
-  heroSafeArea: {
-    paddingHorizontal: 20,
-  },
-  heroChrome: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingTop: 12,
-  },
-  heroButton: {
+  headerAction: {
+    height: 40,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    gap: 6,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
   },
-  heroButtonText: {
-    color: "#fff",
+  headerActionText: {
+    color: tokens.colors.ink,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: tokens.font.semibold,
   },
-  heroCopy: {
-    paddingHorizontal: 20,
-    paddingTop: 30,
-    paddingBottom: 28,
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  heroCard: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    padding: 16,
     gap: 12,
   },
-  heroEyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 12,
-    letterSpacing: 2.8,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  heroTitle: {
-    color: "#fff",
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: "800",
-    letterSpacing: -1.1,
-  },
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 15,
-    lineHeight: 23,
-  },
-  statusRow: {
+  heroCardRow: {
     flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  dateTile: {
+    width: 60,
+    minHeight: 68,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.inkDeep,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+  },
+  dateTileWeekday: {
+    color: tokens.colors.onNavyMuted,
+    fontSize: 11,
+    fontFamily: tokens.font.semibold,
+  },
+  dateTileDay: {
+    color: "#ffffff",
+    fontSize: 22,
+    lineHeight: 26,
+    fontFamily: tokens.font.display,
+  },
+  heroCardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  heroCardTitle: {
+    color: tokens.colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.3,
+  },
+  heroCardMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  heroPills: {
+    flexDirection: "row",
+    alignItems: "center",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
   },
   statusPill: {
     borderRadius: tokens.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  statusConfirmed: {
-    backgroundColor: "#e6f7ec",
-  },
-  statusPending: {
-    backgroundColor: "#fff4de",
-  },
-  statusCompleted: {
-    backgroundColor: "#eef2f7",
-  },
-  statusCancelled: {
-    backgroundColor: "#fde9e6",
-  },
-  statusLive: {
-    backgroundColor: "#e1f7f0",
-  },
-  statusDefault: {
-    backgroundColor: "#edf2fa",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   statusText: {
-    color: tokens.colors.ink,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
+  },
+  statusConfirmed: {
+    backgroundColor: tokens.colors.successSoft,
+  },
+  statusTextConfirmed: {
+    color: tokens.colors.success,
+  },
+  statusPending: {
+    backgroundColor: tokens.colors.warningSoft,
+  },
+  statusTextPending: {
+    color: tokens.colors.warning,
+  },
+  statusCancelled: {
+    backgroundColor: tokens.colors.dangerSoft,
+  },
+  statusTextCancelled: {
+    color: tokens.colors.danger,
+  },
+  statusLive: {
+    backgroundColor: tokens.colors.brandSoft,
+  },
+  statusTextLive: {
+    color: tokens.colors.brandDeep,
+  },
+  statusDefault: {
+    backgroundColor: tokens.colors.surfaceSoft,
+  },
+  statusTextDefault: {
+    color: tokens.colors.muted,
   },
   livePill: {
     borderRadius: tokens.radius.pill,
-    backgroundColor: "rgba(142,227,15,0.18)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    backgroundColor: tokens.colors.brand,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   livePillText: {
-    color: "#c9ff67",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    color: tokens.colors.inkDeep,
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
   },
-  scroll: {
-    flex: 1,
-    marginTop: -18,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    backgroundColor: tokens.colors.surfaceSoft,
-  },
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 24,
-    paddingBottom: 120,
-    gap: 20,
-  },
-  errorBanner: {
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: "#f5c7c4",
-    backgroundColor: "#fff2f0",
-    color: tokens.colors.danger,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  metricsRow: {
+  actionRow: {
     flexDirection: "row",
     gap: 10,
   },
-  metricCard: {
+  actionButton: {
     flex: 1,
+    minHeight: 48,
+  },
+  pressed: {
+    opacity: 0.8,
+  },
+  dangerGhost: {
+    minHeight: 48,
     borderRadius: tokens.radius.md,
     borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  dangerGhostText: {
+    color: tokens.colors.danger,
+    fontSize: 16,
+    fontFamily: tokens.font.bold,
+  },
+  dangerFilled: {
+    minHeight: 56,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  dangerFilledText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontFamily: tokens.font.bold,
+  },
+  section: {
+    borderRadius: 16,
+    borderWidth: 1,
     borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 4,
+    backgroundColor: "#ffffff",
+    padding: 16,
+    gap: 6,
   },
-  metricLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+  sectionDanger: {
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
   },
-  metricValue: {
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 4,
+  },
+  sectionTitle: {
     color: tokens.colors.ink,
     fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "800",
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.2,
   },
-  panel: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    padding: 18,
-    gap: 14,
+  sectionTitleDanger: {
+    color: tokens.colors.danger,
   },
-  panelTitle: {
+  sectionValue: {
     color: tokens.colors.ink,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  panelSubtitle: {
-    color: tokens.colors.muted,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 21,
+    fontFamily: tokens.font.semibold,
   },
-  actionHintsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  hintBadge: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#f2f6dc",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  hintBadgeText: {
-    color: "#5f7d16",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  hintBadgeMuted: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#eef2f7",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  hintBadgeMutedText: {
+  sectionCaption: {
     color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
   },
-  actionButtons: {
-    gap: 10,
-  },
-  primaryButton: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.brand,
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  secondaryButton: {
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  destructiveButton: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#d65146",
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  destructiveButtonText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  buttonDisabled: {
-    opacity: 0.55,
-  },
-  detailGrid: {
-    gap: 12,
-  },
-  detailCard: {
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#fbfdff",
-    borderWidth: 1,
-    borderColor: "#edf1f6",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 4,
-  },
-  detailLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-  },
-  detailValue: {
+  sectionBody: {
     color: tokens.colors.ink,
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: "700",
+    fontFamily: tokens.font.regular,
   },
-  copyBlock: {
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#fbfdff",
-    borderWidth: 1,
-    borderColor: "#edf1f6",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 8,
-  },
-  cancelledBlock: {
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#fff2f0",
-    borderWidth: 1,
-    borderColor: "#f5c7c4",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 8,
-  },
-  copyBlockTitle: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  copyBlockBody: {
-    color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  documentList: {
-    gap: 10,
-  },
-  documentCard: {
+  paymentRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: "#edf1f6",
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    justifyContent: "space-between",
+    gap: 10,
   },
-  documentIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#eef2f7",
+  paymentAmount: {
+    color: tokens.colors.ink,
+    fontSize: 17,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.3,
+  },
+  documentRow: {
+    paddingVertical: 10,
+  },
+  rowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: tokens.colors.border,
   },
   documentCopy: {
-    flex: 1,
-    gap: 3,
+    gap: 2,
   },
   documentLabel: {
     color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
   },
   documentMeta: {
     color: tokens.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
   },
-  loadingState: {
+  skeletonHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 18,
+    borderRadius: tokens.radius.lg,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+  },
+  skeletonTile: {
+    width: 60,
+    height: 68,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonBody: {
     flex: 1,
-    backgroundColor: tokens.colors.ink,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    gap: 18,
+    gap: 10,
   },
-  loadingTitle: {
-    color: "#fff",
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: "800",
-    letterSpacing: -0.9,
+  skeletonLineWide: {
+    height: 16,
+    width: "75%",
+    borderRadius: 8,
+    backgroundColor: tokens.colors.border,
   },
-  loadingCaption: {
-    color: "rgba(255,255,255,0.78)",
+  skeletonLine: {
+    height: 12,
+    width: "50%",
+    borderRadius: 6,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonButton: {
+    height: 56,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.colors.border,
+    opacity: 0.85,
+  },
+  skeletonSection: {
+    height: 88,
+    borderRadius: 16,
+    backgroundColor: tokens.colors.border,
+  },
+  emptyCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    alignItems: "center",
+    gap: 4,
+  },
+  emptyTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+  },
+  emptyBody: {
+    color: tokens.colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    textAlign: "center",
+    fontFamily: tokens.font.regular,
+  },
+  emptyAction: {
+    marginTop: 10,
+    height: 44,
+    paddingHorizontal: 18,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyActionText: {
+    color: tokens.colors.inkDeep,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
   },
   modalRoot: {
     flex: 1,
@@ -1396,7 +1392,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.42)",
+    backgroundColor: "rgba(16,39,72,0.45)",
   },
   modalSheetWrap: {
     flex: 1,
@@ -1404,65 +1400,67 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     width: "100%",
-    minHeight: "52%",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingTop: 12,
-    paddingHorizontal: 18,
-    paddingBottom: 18,
-    gap: 16,
+    maxHeight: "92%",
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: tokens.colors.surface,
+    paddingTop: 10,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    gap: 14,
   },
   modalHandle: {
     alignSelf: "center",
-    width: 52,
+    width: 44,
     height: 5,
-    borderRadius: 999,
-    backgroundColor: "#cfd8e6",
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.borderStrong,
   },
   modalHeader: {
     flexDirection: "row",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 14,
-    paddingTop: 8,
+    gap: 12,
   },
   modalHeaderCopy: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   modalTitle: {
     color: tokens.colors.ink,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.8,
+    fontSize: 20,
+    lineHeight: 24,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
   },
   modalSubtitle: {
     color: tokens.colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
   },
   modalCloseButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
   },
   textArea: {
-    minHeight: 110,
+    minHeight: 96,
     borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
     color: tokens.colors.ink,
-    fontSize: 15,
+    fontSize: 16,
     lineHeight: 22,
+    fontFamily: tokens.font.regular,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   modalScroll: {
     flexGrow: 0,
@@ -1471,195 +1469,145 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 8,
   },
-  selectionCard: {
-    borderRadius: 24,
-    backgroundColor: tokens.colors.ink,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 6,
+  modalFooter: {
+    gap: 10,
   },
-  selectorLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-  },
-  selectionEyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.3,
-    textTransform: "uppercase",
-  },
-  selectionTitle: {
-    color: "#fff",
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-  },
-  selectionBody: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  availabilityCard: {
-    borderRadius: 24,
+  calendarCard: {
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 12,
+    backgroundColor: "#ffffff",
+    padding: 14,
+    gap: 10,
   },
-  availabilityHeader: {
+  calendarHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
-  availabilityTitle: {
+  calendarTitle: {
     color: tokens.colors.ink,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "700",
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.2,
   },
   monthControls: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
   },
   monthButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: tokens.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fbfdff",
+    backgroundColor: tokens.colors.surfaceSoft,
   },
   weekdayRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
   },
   weekdayLabel: {
     width: "14.285%",
     textAlign: "center",
     color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontFamily: tokens.font.semibold,
   },
   calendarGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
   },
   dayCell: {
-    width: "12.8%",
+    width: "14.285%",
     aspectRatio: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#edf1f6",
-    backgroundColor: "#f8fafc",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 2,
+    borderRadius: tokens.radius.sm,
+  },
+  dayCellSkeleton: {
+    transform: [{ scale: 0.7 }],
+    backgroundColor: tokens.colors.border,
+    opacity: 0.6,
   },
   dayCellMuted: {
-    opacity: 0.32,
+    opacity: 0.3,
   },
   dayCellAvailable: {
-    backgroundColor: "#fff",
-    borderColor: "#dbe4ef",
+    backgroundColor: tokens.colors.surfaceSoft,
   },
   dayCellSelected: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+    backgroundColor: tokens.colors.inkDeep,
   },
   dayCellLabel: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  dayCellLabelMuted: {
-    color: "#a8b6c8",
+    color: tokens.colors.mutedSoft,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   dayCellLabelAvailable: {
     color: tokens.colors.ink,
   },
   dayCellLabelSelected: {
-    color: "#fff",
+    color: "#ffffff",
   },
-  dayAvailabilityDot: {
+  dayDot: {
     width: 5,
     height: 5,
-    borderRadius: 999,
+    borderRadius: tokens.radius.pill,
     backgroundColor: tokens.colors.brand,
   },
-  dayAvailabilityDotSelected: {
-    backgroundColor: "#fff",
+  dayDotSelected: {
+    backgroundColor: tokens.colors.brand,
+  },
+  slotsBlock: {
+    gap: 10,
+  },
+  slotsTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.2,
   },
   slotGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
   },
-  slotButton: {
-    minWidth: "48%",
-    flexGrow: 1,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#e4ebf4",
-    backgroundColor: "#fbfdff",
+  slotChip: {
+    height: 40,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 4,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  slotButtonSelected: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+  slotChipSkeleton: {
+    width: 84,
+    borderColor: tokens.colors.border,
+    backgroundColor: tokens.colors.border,
+    opacity: 0.6,
+  },
+  slotChipSelected: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
   },
   slotLabel: {
     color: tokens.colors.ink,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: tokens.font.semibold,
   },
   slotLabelSelected: {
-    color: "#fff",
+    color: "#ffffff",
   },
-  slotMeta: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-  },
-  slotMetaSelected: {
-    color: "rgba(255,255,255,0.72)",
-  },
-  emptyAvailabilityState: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#edf1f6",
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    gap: 6,
-  },
-  emptyAvailabilityTitle: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  emptyAvailabilityBody: {
+  slotSummary: {
     color: tokens.colors.muted,
     fontSize: 13,
-    lineHeight: 20,
-  },
-  modalFooter: {
-    gap: 10,
-  },
-  loadingCopy: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
   },
 });

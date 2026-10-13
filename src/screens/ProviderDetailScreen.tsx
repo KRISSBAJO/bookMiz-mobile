@@ -2,8 +2,9 @@ import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Image,
   Linking,
   Pressable,
@@ -14,6 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { AuthButton } from "@/src/components/auth/AuthButton";
 import { SectionHeader } from "@/src/components/SectionHeader";
 import {
   bookmarkMarketplaceProvider,
@@ -27,6 +29,7 @@ import {
   formatMarketplaceDistance,
   formatMarketplaceDuration,
   formatMarketplacePrice,
+  formatPriceTier,
   getMarketplaceLocationLabel,
   resolveMarketplaceImage,
 } from "@/src/lib/marketplace-display";
@@ -35,6 +38,14 @@ import { tokens } from "@/src/theme/tokens";
 
 function normalizeSlug(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formatReviewDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
 export function ProviderDetailScreen() {
@@ -127,296 +138,407 @@ export function ProviderDetailScreen() {
     router.push({ pathname: "/booking/[slug]", params: { slug } } as never);
   }, [router, slug]);
 
+  const currencyCode = profile?.provider.currencyCode;
+  const priceTier = formatPriceTier(profile?.provider.priceRangeLabel);
+  const startsAt =
+    profile && profile.provider.lowestPriceCents !== null
+      ? formatMarketplacePrice(profile.provider.lowestPriceCents, null, currencyCode)
+      : null;
+  const about = profile?.provider.description ?? profile?.provider.publicSummary ?? null;
+  const tagline =
+    profile?.provider.tagline ??
+    (profile?.provider.publicSummary && profile.provider.publicSummary !== about
+      ? profile.provider.publicSummary
+      : null);
+  const policies = profile
+    ? [
+        { label: "Booking", value: profile.provider.bookingPolicy },
+        { label: "Cancellation", value: profile.provider.cancellationPolicy },
+        { label: "Payment", value: profile.provider.paymentPolicy },
+      ].filter((item) => item.value)
+    : [];
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
 
       {profile ? (
         <>
-          <View style={styles.hero}>
-            <Image
-              source={resolveMarketplaceImage(
-                profile.provider.coverImageUrl ?? profile.gallery[0]?.url ?? null,
-              )}
-              style={styles.heroImage}
-            />
-            <View style={styles.heroOverlay} />
-            <SafeAreaView style={styles.heroSafeArea} edges={["top"]}>
-              <View style={styles.heroChrome}>
-                <Pressable style={styles.heroButton} onPress={() => router.back()}>
-                  <FontAwesome6 name="arrow-left-long" size={16} color="#fff" />
-                  <Text style={styles.heroButtonText}>Back</Text>
-                </Pressable>
-                {session.isSignedIn ? (
-                  <Pressable style={styles.heroButton} onPress={() => void toggleBookmark()}>
-                    <FontAwesome6
-                      name={isBookmarked ? "bookmark" : "bookmark"}
-                      size={15}
-                      color={isBookmarked ? tokens.colors.brand : "#fff"}
-                    />
-                    <Text style={styles.heroButtonText}>
-                      {isBookmarked ? "Saved" : "Save"}
-                    </Text>
-                  </Pressable>
-                ) : (
-                  <View style={[styles.heroButton, styles.heroButtonDisabled]}>
-                    <FontAwesome6 name="bookmark" size={15} color="rgba(255,255,255,0.68)" />
-                    <Text style={styles.heroButtonTextMuted}>Save</Text>
-                  </View>
-                )}
-              </View>
-            </SafeAreaView>
-
-            <View style={styles.heroCopyWrap}>
-              <View style={styles.heroCopy}>
-                <Text style={styles.heroEyebrow}>
-                  {profile.provider.businessCategory ?? "BookMiz provider"} ·{" "}
-                  {getMarketplaceLocationLabel(profile.provider.primaryLocation)}
-                </Text>
-                <Text style={styles.heroTitle}>{profile.provider.displayName}</Text>
-                <Text style={styles.heroSubtitle}>
-                  {profile.provider.tagline ?? profile.provider.publicSummary ?? profile.provider.description}
-                </Text>
-                <View style={styles.heroStats}>
-                  <View style={styles.heroStatPill}>
-                    <FontAwesome6 name="star" size={12} color={tokens.colors.ink} solid />
-                    <Text style={styles.heroStatText}>
-                      {profile.provider.averageRating
-                        ? profile.provider.averageRating.toFixed(1)
-                        : "New"}
-                    </Text>
-                  </View>
-                  <View style={styles.heroStatPill}>
-                    <Text style={styles.heroStatText}>
-                      {profile.reviewSummary.totalReviews} reviews
-                    </Text>
-                  </View>
-                  <View style={styles.heroStatPill}>
-                    <Text style={styles.heroStatText}>
-                      {formatMarketplaceDistance(profile.provider.distanceMiles)}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
-
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.galleryRail}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRailInner}>
-                {profile.gallery.slice(0, 5).map((item) => (
-                  <View key={item.id} style={styles.galleryFrame}>
-                    <Image
-                      source={resolveMarketplaceImage(item.url)}
-                      style={styles.galleryImage}
+            <View style={styles.photo}>
+              <Image
+                source={resolveMarketplaceImage(
+                  profile.provider.coverImageUrl ?? profile.gallery[0]?.url ?? null,
+                )}
+                style={styles.photoImage}
+              />
+              <SafeAreaView style={styles.photoChrome} edges={["top"]}>
+                <View style={styles.photoChromeRow}>
+                  <Pressable
+                    style={styles.roundButton}
+                    onPress={() => router.back()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                  >
+                    <FontAwesome6 name="chevron-left" size={16} color={tokens.colors.ink} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.roundButton}
+                    onPress={() => void toggleBookmark()}
+                    disabled={!session.isSignedIn}
+                    accessibilityRole="button"
+                    accessibilityLabel={isBookmarked ? "Remove from saved" : "Save provider"}
+                    accessibilityState={{ selected: isBookmarked, disabled: !session.isSignedIn }}
+                  >
+                    <FontAwesome6
+                      name="heart"
+                      size={17}
+                      solid={isBookmarked}
+                      color={isBookmarked ? tokens.colors.danger : tokens.colors.ink}
                     />
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={styles.ctaPanel}>
-              <View style={styles.ctaButtons}>
-                <Pressable
-                  style={styles.primaryButton}
-                  onPress={() => void handleBookAppointment()}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    Book appointment
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(tabs)/explore",
-                      params: {
-                        categorySlug: profile.provider.categorySlug ?? undefined,
-                        serviceModel:
-                          profile.provider.serviceModel === "PROFESSIONAL"
-                            ? "PROFESSIONAL"
-                            : "LOCAL",
-                        locationQuery: profile.provider.primaryLocation?.localityLabel ?? undefined,
-                      },
-                    } as never)
-                  }
-                >
-                  <Text style={styles.secondaryButtonText}>See similar providers</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.linkRow}>
-                {profile.provider.websiteUrl ? (
-                  <Pressable
-                    style={styles.linkChip}
-                    onPress={() => void Linking.openURL(profile.provider.websiteUrl!)}
-                  >
-                    <FontAwesome6 name="globe" size={13} color={tokens.colors.ink} />
-                    <Text style={styles.linkChipText}>Website</Text>
                   </Pressable>
-                ) : null}
-                {profile.provider.instagramUrl ? (
-                  <Pressable
-                    style={styles.linkChip}
-                    onPress={() => void Linking.openURL(profile.provider.instagramUrl!)}
-                  >
-                    <FontAwesome6 name="instagram" size={13} color={tokens.colors.ink} />
-                    <Text style={styles.linkChipText}>Instagram</Text>
-                  </Pressable>
-                ) : null}
-                {profile.provider.businessPhone ? (
-                  <View style={styles.linkChipStatic}>
-                    <FontAwesome6 name="phone" size={12} color={tokens.colors.ink} />
-                    <Text style={styles.linkChipText}>{profile.provider.businessPhone}</Text>
-                  </View>
-                ) : null}
-              </View>
+                </View>
+              </SafeAreaView>
+              {profile.hours.isOpenNow ? (
+                <View style={styles.openBadge}>
+                  <Text style={styles.openBadgeText}>Open now</Text>
+                </View>
+              ) : null}
             </View>
 
-            <View style={styles.panel}>
-              <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>Profile details</Text>
+            <View style={styles.body}>
+              <View style={styles.headBlock}>
+                <Text style={styles.name}>{profile.provider.displayName}</Text>
+                <View style={styles.ratingRow}>
+                  <FontAwesome6 name="star" size={14} color={tokens.colors.ink} solid />
+                  <Text style={styles.ratingText}>
+                    {profile.provider.averageRating
+                      ? profile.provider.averageRating.toFixed(1)
+                      : "New"}
+                  </Text>
+                  <Text style={styles.ratingMeta}>
+                    {profile.reviewSummary.totalReviews > 0
+                      ? ` (${profile.reviewSummary.totalReviews} review${profile.reviewSummary.totalReviews === 1 ? "" : "s"})`
+                      : ""}
+                  </Text>
+                  <Text style={styles.ratingMeta}>
+                    {" · "}
+                    {formatMarketplaceDistance(profile.provider.distanceMiles)}
+                  </Text>
+                </View>
+                <View style={styles.locationRow}>
+                  <FontAwesome6 name="location-dot" size={14} color={tokens.colors.muted} />
+                  <Text style={styles.locationText} numberOfLines={2}>
+                    {[
+                      profile.provider.businessCategory,
+                      profile.provider.primaryLocation?.addressLabel ??
+                        getMarketplaceLocationLabel(profile.provider.primaryLocation),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                </View>
+                {tagline ? <Text style={styles.tagline}>{tagline}</Text> : null}
               </View>
-              <SectionHeader
-                title="About this provider"
-                subtitle="Live profile details from the same production marketplace feed as the web app."
-              />
-              <Text style={styles.bodyCopy}>
-                {profile.provider.description ?? profile.provider.publicSummary}
-              </Text>
-              <View style={styles.metaGrid}>
-                <View style={styles.metaCard}>
-                  <Text style={styles.metaLabel}>Starts at</Text>
-                  <Text style={styles.metaValue}>
-                    {formatMarketplacePrice(
-                      profile.provider.lowestPriceCents,
-                      profile.provider.priceRangeLabel,
-                    )}
-                  </Text>
-                </View>
-                <View style={styles.metaCard}>
-                  <Text style={styles.metaLabel}>Open today</Text>
-                  <Text style={styles.metaValue}>{profile.hours.todayLabel}</Text>
-                </View>
-                <View style={styles.metaCard}>
-                  <Text style={styles.metaLabel}>Years in business</Text>
-                  <Text style={styles.metaValue}>
-                    {profile.provider.yearsInBusiness ?? "Established"}
-                  </Text>
-                </View>
-                <View style={styles.metaCard}>
-                  <Text style={styles.metaLabel}>Location</Text>
-                  <Text style={styles.metaValue}>
-                    {getMarketplaceLocationLabel(profile.provider.primaryLocation)}
-                  </Text>
-                </View>
-              </View>
-            </View>
 
-            <View style={styles.panel}>
-              <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>Signature menu</Text>
-              </View>
-              <SectionHeader
-                title="Top services"
-                subtitle="Real services and pricing from this provider profile."
-              />
-              {featuredServices.slice(0, 6).map((service, index) => (
-                <View key={service.id} style={styles.serviceCard}>
-                  <View style={styles.serviceHeader}>
-                    <View style={styles.serviceCountBadge}>
-                      <Text style={styles.serviceCountBadgeText}>
-                        {String(index + 1).padStart(2, "0")}
-                      </Text>
-                    </View>
-                    <View style={styles.serviceHeaderCopy}>
-                      <Text style={styles.serviceTitle}>{service.name}</Text>
-                      <Text style={styles.serviceMeta}>
-                        {formatMarketplaceDuration(service.durationMinutes)}
-                        {service.marketplaceLabel ? ` · ${service.marketplaceLabel}` : ""}
-                      </Text>
-                    </View>
-                    <Text style={styles.servicePrice}>
-                      {formatMarketplacePrice(service.priceCents)}
+              <View style={styles.factRow}>
+                <View style={styles.fact}>
+                  <Text style={styles.factLabel}>Today</Text>
+                  <Text style={styles.factValue} numberOfLines={2}>
+                    {profile.hours.todayLabel}
+                  </Text>
+                </View>
+                <View style={styles.fact}>
+                  <Text style={styles.factLabel}>From</Text>
+                  <Text style={styles.factValue} numberOfLines={1}>
+                    {startsAt ?? "See services"}
+                  </Text>
+                  {priceTier ? (
+                    <Text style={styles.factCaption} numberOfLines={1}>
+                      {priceTier}
                     </Text>
-                  </View>
-                  {service.description ? (
-                    <Text style={styles.serviceDescription}>{service.description}</Text>
                   ) : null}
                 </View>
-              ))}
-            </View>
-
-            <View style={styles.panel}>
-              <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>House details</Text>
-              </View>
-              <SectionHeader
-                title="Hours and policies"
-                subtitle="The practical details customers usually need before they commit."
-              />
-              {profile.hours.week.map((day) => (
-                <View key={day.weekday} style={styles.scheduleRow}>
-                  <Text style={styles.scheduleDay}>{day.dayLabel}</Text>
-                  <Text style={styles.scheduleValue}>
-                    {day.isClosed ? "Closed" : day.slots.map((slot) => slot.label).join(", ")}
-                  </Text>
-                </View>
-              ))}
-              {profile.provider.bookingPolicy ? (
-                <Text style={styles.policyCopy}>Booking: {profile.provider.bookingPolicy}</Text>
-              ) : null}
-              {profile.provider.cancellationPolicy ? (
-                <Text style={styles.policyCopy}>
-                  Cancellation: {profile.provider.cancellationPolicy}
-                </Text>
-              ) : null}
-              {profile.provider.paymentPolicy ? (
-                <Text style={styles.policyCopy}>Payment: {profile.provider.paymentPolicy}</Text>
-              ) : null}
-            </View>
-
-            <View style={styles.panel}>
-              <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>Client feedback</Text>
-              </View>
-              <SectionHeader
-                title="Recent client feedback"
-                subtitle={`Average ${profile.reviewSummary.averageRating.toFixed(1)} across ${profile.reviewSummary.totalReviews} reviews.`}
-              />
-              {profile.reviewSummary.reviews.slice(0, 3).map((review) => (
-                <View key={review.id} style={styles.reviewCard}>
-                  <View style={styles.reviewHeader}>
-                    <Text style={styles.reviewName}>{review.reviewerName ?? "BookMiz client"}</Text>
-                    <View style={styles.reviewRating}>
-                      <FontAwesome6 name="star" size={11} color={tokens.colors.ink} solid />
-                      <Text style={styles.reviewRatingText}>{review.rating.toFixed(1)}</Text>
-                    </View>
+                {profile.provider.yearsInBusiness ? (
+                  <View style={styles.fact}>
+                    <Text style={styles.factLabel}>In business</Text>
+                    <Text style={styles.factValue} numberOfLines={1}>
+                      {profile.provider.yearsInBusiness} yr{profile.provider.yearsInBusiness === 1 ? "" : "s"}
+                    </Text>
                   </View>
-                  <Text style={styles.reviewKicker}>Verified BookMiz review</Text>
-                  {review.title ? <Text style={styles.reviewTitle}>{review.title}</Text> : null}
-                  {review.content ? <Text style={styles.reviewBody}>{review.content}</Text> : null}
+                ) : null}
+              </View>
+
+              {profile.provider.websiteUrl ||
+              profile.provider.instagramUrl ||
+              profile.provider.businessPhone ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.railScroll}
+                  contentContainerStyle={styles.rail}
+                >
+                  {profile.provider.websiteUrl ? (
+                    <Pressable
+                      style={styles.chip}
+                      onPress={() => void Linking.openURL(profile.provider.websiteUrl!)}
+                      accessibilityRole="link"
+                    >
+                      <FontAwesome6 name="globe" size={14} color={tokens.colors.ink} />
+                      <Text style={styles.chipText}>Website</Text>
+                    </Pressable>
+                  ) : null}
+                  {profile.provider.instagramUrl ? (
+                    <Pressable
+                      style={styles.chip}
+                      onPress={() => void Linking.openURL(profile.provider.instagramUrl!)}
+                      accessibilityRole="link"
+                    >
+                      <FontAwesome6 name="instagram" size={14} color={tokens.colors.ink} />
+                      <Text style={styles.chipText}>Instagram</Text>
+                    </Pressable>
+                  ) : null}
+                  {profile.provider.businessPhone ? (
+                    <View style={styles.chip}>
+                      <FontAwesome6 name="phone" size={14} color={tokens.colors.ink} />
+                      <Text style={styles.chipText}>{profile.provider.businessPhone}</Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              ) : null}
+
+              {profile.gallery.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.railScroll}
+                  contentContainerStyle={styles.rail}
+                >
+                  {profile.gallery.slice(0, 6).map((item) => (
+                    <Image
+                      key={item.id}
+                      source={resolveMarketplaceImage(item.url)}
+                      style={styles.galleryImage}
+                      accessibilityLabel={item.altText ?? undefined}
+                    />
+                  ))}
+                </ScrollView>
+              ) : null}
+
+              {about ? (
+                <View style={styles.section}>
+                  <SectionHeader title="About" />
+                  <View style={styles.card}>
+                    <Text style={styles.bodyCopy}>{about}</Text>
+                  </View>
                 </View>
-              ))}
+              ) : null}
+
+              {featuredServices.length > 0 ? (
+                <View style={styles.section}>
+                  <SectionHeader title="Services" />
+                  <View style={styles.card}>
+                    {featuredServices.slice(0, 6).map((service, index) => (
+                      <View
+                        key={service.id}
+                        style={[styles.serviceRow, index > 0 ? styles.rowDivider : null]}
+                      >
+                        <View style={styles.serviceBody}>
+                          <Text style={styles.serviceTitle} numberOfLines={2}>
+                            {service.name}
+                          </Text>
+                          <Text style={styles.serviceMeta} numberOfLines={1}>
+                            {[
+                              formatMarketplaceDuration(service.durationMinutes),
+                              service.marketplaceLabel,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </Text>
+                          {service.description ? (
+                            <Text style={styles.serviceDescription} numberOfLines={2}>
+                              {service.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text style={styles.servicePrice}>
+                          {formatMarketplacePrice(service.priceCents, null, currencyCode)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.section}>
+                <SectionHeader title="Hours" />
+                <View style={styles.card}>
+                  {profile.hours.week.map((day, index) => (
+                    <View
+                      key={day.weekday}
+                      style={[styles.hoursRow, index > 0 ? styles.rowDivider : null]}
+                    >
+                      <Text style={styles.hoursDay}>{day.dayLabel}</Text>
+                      <Text style={[styles.hoursValue, day.isClosed ? styles.hoursClosed : null]}>
+                        {day.isClosed ? "Closed" : day.slots.map((slot) => slot.label).join(", ")}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {policies.length > 0 ? (
+                <View style={styles.section}>
+                  <SectionHeader title="Policies" />
+                  <View style={styles.card}>
+                    {policies.map((item, index) => (
+                      <View
+                        key={item.label}
+                        style={[styles.policyRow, index > 0 ? styles.rowDivider : null]}
+                      >
+                        <Text style={styles.policyLabel}>{item.label}</Text>
+                        <Text style={styles.policyValue}>{item.value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {profile.reviewSummary.reviews.length > 0 ? (
+                <View style={styles.section}>
+                  <SectionHeader
+                    title="Reviews"
+                    subtitle={`${profile.reviewSummary.averageRating.toFixed(1)} average · ${profile.reviewSummary.totalReviews} review${profile.reviewSummary.totalReviews === 1 ? "" : "s"}`}
+                  />
+                  {profile.reviewSummary.reviews.slice(0, 3).map((review) => (
+                    <View key={review.id} style={styles.card}>
+                      <View style={styles.reviewHeader}>
+                        <View style={styles.reviewWho}>
+                          <Text style={styles.reviewName} numberOfLines={1}>
+                            {review.reviewerName ?? "BookMiz customer"}
+                          </Text>
+                          <Text style={styles.reviewMeta} numberOfLines={1}>
+                            {[
+                              formatReviewDate(review.createdAt),
+                              review.serviceName,
+                              review.isVerifiedBooking ? "Verified booking" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </Text>
+                        </View>
+                        <View style={styles.reviewRating}>
+                          <FontAwesome6 name="star" size={12} color={tokens.colors.ink} solid />
+                          <Text style={styles.reviewRatingText}>{review.rating.toFixed(1)}</Text>
+                        </View>
+                      </View>
+                      {review.title ? <Text style={styles.reviewTitle}>{review.title}</Text> : null}
+                      {review.content ? <Text style={styles.reviewBody}>{review.content}</Text> : null}
+                      {review.responseText ? (
+                        <View style={styles.reviewReply}>
+                          <Text style={styles.reviewReplyLabel}>
+                            Reply from {review.responseByName ?? profile.provider.displayName}
+                          </Text>
+                          <Text style={styles.reviewReplyBody}>{review.responseText}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </ScrollView>
+
+          <SafeAreaView edges={["bottom"]} style={styles.bookBar}>
+            <View style={styles.bookBarRow}>
+              <AuthButton
+                label="Similar"
+                variant="secondary"
+                style={styles.similarButton}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/explore",
+                    params: {
+                      categorySlug: profile.provider.categorySlug ?? undefined,
+                      serviceModel:
+                        profile.provider.serviceModel === "PROFESSIONAL"
+                          ? "PROFESSIONAL"
+                          : "LOCAL",
+                      locationQuery: profile.provider.primaryLocation?.localityLabel ?? undefined,
+                    },
+                  } as never)
+                }
+              />
+              <AuthButton
+                label="Book"
+                icon="arrow-right"
+                style={styles.bookButton}
+                onPress={() => void handleBookAppointment()}
+              />
+            </View>
+          </SafeAreaView>
         </>
       ) : (
-        <SafeAreaView style={styles.emptyState}>
-          <Pressable style={styles.heroButton} onPress={() => router.back()}>
-            <FontAwesome6 name="arrow-left-long" size={18} color={tokens.colors.ink} />
-          </Pressable>
-          <Text style={styles.emptyTitle}>
-            {isLoading ? "Loading provider..." : "We couldn’t load this provider."}
-          </Text>
-          {error ? <Text style={styles.emptyBody}>{error}</Text> : null}
-        </SafeAreaView>
+        <View style={styles.fallback}>
+          <SafeAreaView edges={["top"]} style={styles.fallbackChrome}>
+            <Pressable
+              style={styles.roundButton}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+            >
+              <FontAwesome6 name="chevron-left" size={16} color={tokens.colors.ink} />
+            </Pressable>
+          </SafeAreaView>
+          {isLoading ? (
+            <DetailSkeleton />
+          ) : (
+            <View style={styles.fallbackBody}>
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText} accessibilityRole="alert">
+                  {error ?? "We could not load this provider."}
+                </Text>
+                <Pressable onPress={() => void loadProfile()} accessibilityRole="button">
+                  <Text style={styles.errorRetry}>Try again</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
       )}
     </View>
+  );
+}
+
+function DetailSkeleton() {
+  const opacity = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={[styles.skeleton, { opacity }]} accessibilityLabel="Loading provider">
+      <View style={styles.skeletonPhoto} />
+      <View style={styles.skeletonBody}>
+        <View style={[styles.skeletonLine, styles.skeletonTitle]} />
+        <View style={[styles.skeletonLine, styles.skeletonLineShort]} />
+        <View style={[styles.skeletonLine, styles.skeletonLineWide]} />
+        <View style={styles.skeletonCard} />
+        <View style={styles.skeletonCard} />
+      </View>
+    </Animated.View>
   );
 }
 
@@ -425,436 +547,412 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: tokens.colors.surface,
   },
-  hero: {
-    height: 404,
-    backgroundColor: tokens.colors.inkDeep,
-    position: "relative",
+  scroll: {
+    flex: 1,
   },
-  heroImage: {
+  content: {
+    paddingBottom: 120,
+  },
+  photo: {
+    height: 280,
+    backgroundColor: tokens.colors.navySoft,
+  },
+  photoImage: {
     width: "100%",
     height: "100%",
+    resizeMode: "cover",
   },
-  heroOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.36)",
-  },
-  heroSafeArea: {
+  photoChrome: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 2,
   },
-  heroChrome: {
-    paddingHorizontal: 18,
+  photoChromeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  heroButton: {
-    minWidth: 76,
+  roundButton: {
+    width: 44,
     height: 44,
     borderRadius: 22,
-    paddingHorizontal: 14,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-    backgroundColor: "rgba(12,29,54,0.66)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
   },
-  heroButtonDisabled: {
-    opacity: 0.9,
-  },
-  heroButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  heroButtonTextMuted: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  heroCopyWrap: {
+  openBadge: {
     position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: 22,
-    zIndex: 1,
-  },
-  heroCopy: {
-    borderRadius: 30,
-    backgroundColor: "rgba(12,29,54,0.36)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    gap: 10,
-  },
-  heroEyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-  },
-  heroTitle: {
-    color: "#fff",
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: "800",
-    letterSpacing: -1.2,
-  },
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.84)",
-    fontSize: 15,
-    lineHeight: 23,
-  },
-  heroStats: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  heroStatPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  heroStatText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  scroll: {
-    flex: 1,
-    marginTop: -30,
-  },
-  content: {
-    paddingHorizontal: 18,
-    paddingBottom: 100,
-    gap: 18,
-  },
-  galleryRail: {
-    marginTop: 2,
-  },
-  galleryRailInner: {
-    gap: 12,
-    paddingRight: 8,
-  },
-  galleryFrame: {
-    borderRadius: 24,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 6,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
-  },
-  galleryImage: {
-    width: 146,
-    height: 104,
-    borderRadius: 18,
-    backgroundColor: tokens.colors.surfaceSoft,
-  },
-  ctaPanel: {
-    backgroundColor: tokens.colors.panel,
-    borderRadius: tokens.radius.lg,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 18,
-    gap: 14,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  ctaButtons: {
-    gap: 10,
-  },
-  primaryButton: {
+    left: 20,
+    bottom: 16,
     borderRadius: tokens.radius.pill,
     backgroundColor: tokens.colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  primaryButtonText: {
+  openBadgeText: {
+    color: tokens.colors.inkDeep,
+    fontSize: 12,
+    fontFamily: tokens.font.semibold,
+  },
+  body: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    gap: 20,
+  },
+  headBlock: {
+    gap: 6,
+  },
+  name: {
+    color: tokens.colors.ink,
+    fontSize: 22,
+    lineHeight: 28,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
+  },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  ratingText: {
     color: tokens.colors.ink,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: tokens.font.semibold,
   },
-  secondaryButton: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-  },
-  secondaryButtonText: {
-    color: tokens.colors.ink,
+  ratingMeta: {
+    color: tokens.colors.muted,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: tokens.font.regular,
   },
-  linkRow: {
+  locationRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  locationText: {
+    flex: 1,
+    color: tokens.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  tagline: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: tokens.font.regular,
+    marginTop: 4,
+  },
+  factRow: {
+    flexDirection: "row",
     gap: 10,
   },
-  linkChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.surfaceSoft,
+  fact: {
+    flex: 1,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    padding: 12,
+    gap: 2,
   },
-  linkChipStatic: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#ecf8d1",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  linkChipText: {
-    color: tokens.colors.ink,
+  factLabel: {
+    color: tokens.colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: tokens.font.semibold,
   },
-  panel: {
-    backgroundColor: tokens.colors.panel,
-    borderRadius: tokens.radius.lg,
+  factValue: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: tokens.font.semibold,
+  },
+  factCaption: {
+    color: tokens.colors.muted,
+    fontSize: 12,
+    fontFamily: tokens.font.regular,
+  },
+  railScroll: {
+    marginHorizontal: -20,
+  },
+  rail: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  chip: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+  },
+  chipText: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  galleryImage: {
+    width: 140,
+    height: 100,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+    resizeMode: "cover",
+  },
+  section: {
+    gap: 12,
+  },
+  card: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    padding: 18,
-    gap: 14,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  sectionLabelRow: {
-    flexDirection: "row",
-  },
-  sectionLabel: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#f5efe7",
-    color: tokens.colors.gold,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    textTransform: "uppercase",
+    paddingHorizontal: 16,
+    paddingVertical: 4,
   },
   bodyCopy: {
-    color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  metaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  metaCard: {
-    width: "48%",
-    borderRadius: 24,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 14,
-    gap: 6,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 1,
-  },
-  metaLabel: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-  },
-  metaValue: {
     color: tokens.colors.ink,
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: "800",
+    fontFamily: tokens.font.regular,
+    paddingVertical: 10,
   },
-  serviceCard: {
-    borderRadius: 24,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 16,
-    gap: 10,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 1,
+  rowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
   },
-  serviceHeader: {
+  serviceRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
     alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 12,
   },
-  serviceCountBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#f5efe7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  serviceCountBadgeText: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  serviceHeaderCopy: {
+  serviceBody: {
     flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   serviceTitle: {
     color: tokens.colors.ink,
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: tokens.font.display,
   },
   serviceMeta: {
-    marginTop: 4,
     color: tokens.colors.muted,
-    fontSize: 12,
-  },
-  servicePrice: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
   },
   serviceDescription: {
     color: tokens.colors.muted,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
+    marginTop: 2,
   },
-  scheduleRow: {
+  servicePrice: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
+  },
+  hoursRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eef2f7",
+    paddingVertical: 10,
   },
-  scheduleDay: {
+  hoursDay: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
-  scheduleValue: {
+  hoursValue: {
     flex: 1,
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    color: tokens.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: "right",
+    fontFamily: tokens.font.regular,
   },
-  policyCopy: {
+  hoursClosed: {
     color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 21,
   },
-  reviewCard: {
-    borderRadius: 24,
-    backgroundColor: "#fbfcff",
-    borderWidth: 1,
-    borderColor: "#dce3ef",
-    padding: 16,
-    gap: 10,
-    shadowColor: tokens.colors.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 1,
+  policyRow: {
+    paddingVertical: 10,
+    gap: 2,
+  },
+  policyLabel: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  policyValue: {
+    color: tokens.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
   },
   reviewHeader: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    alignItems: "center",
+    paddingTop: 10,
+  },
+  reviewWho: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   reviewName: {
     color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
+  },
+  reviewMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
   },
   reviewRating: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     borderRadius: tokens.radius.pill,
-    backgroundColor: "#ecf8d1",
+    backgroundColor: tokens.colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 5,
   },
   reviewRatingText: {
     color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 13,
+    fontFamily: tokens.font.semibold,
   },
   reviewTitle: {
     color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  reviewKicker: {
-    color: tokens.colors.gold,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
-    textTransform: "uppercase",
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
+    marginTop: 10,
   },
   reviewBody: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  reviewReply: {
+    borderRadius: 12,
+    backgroundColor: tokens.colors.surfaceSoft,
+    padding: 12,
+    gap: 4,
+    marginBottom: 10,
+  },
+  reviewReplyLabel: {
+    color: tokens.colors.ink,
+    fontSize: 13,
+    fontFamily: tokens.font.semibold,
+  },
+  reviewReplyBody: {
     color: tokens.colors.muted,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
   },
-  emptyState: {
+  bookBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#ffffff",
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+  },
+  bookBarRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  similarButton: {
     flex: 1,
-    paddingHorizontal: 22,
-    paddingTop: 24,
-    gap: 18,
-    backgroundColor: tokens.colors.surface,
   },
-  emptyTitle: {
-    color: tokens.colors.ink,
-    fontSize: 26,
-    lineHeight: 32,
-    fontWeight: "800",
-    letterSpacing: -0.8,
+  bookButton: {
+    flex: 2,
   },
-  emptyBody: {
-    color: tokens.colors.muted,
+  fallback: {
+    flex: 1,
+  },
+  fallbackChrome: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  fallbackBody: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  skeleton: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 20,
+  },
+  skeletonPhoto: {
+    height: 200,
+    borderRadius: 16,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonBody: {
+    gap: 12,
+  },
+  skeletonLine: {
+    height: 14,
+    width: "60%",
+    borderRadius: 7,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonTitle: {
+    height: 22,
+    width: "70%",
+    borderRadius: 8,
+  },
+  skeletonLineShort: {
+    width: "35%",
+  },
+  skeletonLineWide: {
+    width: "85%",
+  },
+  skeletonCard: {
+    height: 88,
+    borderRadius: 16,
+    backgroundColor: tokens.colors.border,
+    marginTop: 8,
   },
 });

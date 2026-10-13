@@ -2,18 +2,14 @@ import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Screen } from "@/src/components/Screen";
-import { SectionHeader } from "@/src/components/SectionHeader";
 import { listCustomerBookings } from "@/src/lib/api/bookings";
 import type { CustomerBookingRecord } from "@/src/lib/api/types";
 import {
-  canCancelBooking,
-  canRescheduleBooking,
-  formatBookingDateLabel,
-  formatBookingDateTime,
   formatBookingMoney,
+  formatBookingTimeLabel,
   formatMeetingProvider,
   hasActiveMeetingLink,
   isBookingLiveNow,
@@ -24,28 +20,52 @@ import { tokens } from "@/src/theme/tokens";
 type AppointmentFilter = "ALL" | "LIVE" | "UPCOMING" | "PAST" | "CANCELLED";
 
 const filterLabels: Array<{ id: AppointmentFilter; label: string }> = [
-  { id: "ALL", label: "All" },
-  { id: "LIVE", label: "Live now" },
   { id: "UPCOMING", label: "Upcoming" },
   { id: "PAST", label: "Past" },
+  { id: "LIVE", label: "Live now" },
   { id: "CANCELLED", label: "Cancelled" },
+  { id: "ALL", label: "All" },
 ];
 
 function statusTone(status: CustomerBookingRecord["status"]) {
   switch (status) {
     case "CONFIRMED":
-      return styles.statusConfirmed;
+      return { pill: styles.statusConfirmed, text: styles.statusTextConfirmed };
     case "PENDING":
-      return styles.statusPending;
-    case "COMPLETED":
-      return styles.statusCompleted;
+      return { pill: styles.statusPending, text: styles.statusTextPending };
     case "CANCELLED":
-      return styles.statusCancelled;
+      return { pill: styles.statusCancelled, text: styles.statusTextCancelled };
     case "CHECKED_IN":
-      return styles.statusLive;
+      return { pill: styles.statusLive, text: styles.statusTextLive };
     default:
-      return styles.statusDefault;
+      return { pill: styles.statusDefault, text: styles.statusTextDefault };
   }
+}
+
+function statusLabel(status: CustomerBookingRecord["status"]) {
+  switch (status) {
+    case "CONFIRMED":
+      return "Confirmed";
+    case "PENDING":
+      return "Pending";
+    case "CHECKED_IN":
+      return "Checked in";
+    case "COMPLETED":
+      return "Completed";
+    case "CANCELLED":
+      return "Cancelled";
+    default:
+      return status;
+  }
+}
+
+function dateTileParts(value: string) {
+  const date = new Date(value);
+  return {
+    weekday: date.toLocaleDateString(undefined, { weekday: "short" }),
+    day: String(date.getDate()),
+    month: date.toLocaleDateString(undefined, { month: "short" }),
+  };
 }
 
 export function AppointmentsScreen() {
@@ -125,173 +145,176 @@ export function AppointmentsScreen() {
     }
   }, [activeFilter, bookingBuckets, bookings]);
 
+  const countFor = (filter: AppointmentFilter) => {
+    switch (filter) {
+      case "LIVE":
+        return bookingBuckets.live.length;
+      case "UPCOMING":
+        return bookingBuckets.upcoming.length;
+      case "PAST":
+        return bookingBuckets.past.length;
+      case "CANCELLED":
+        return bookingBuckets.cancelled.length;
+      default:
+        return bookings.length;
+    }
+  };
+
   return (
     <Screen
-      eyebrow="Appointment center"
-      title="See what is booked, live, and finished"
-      subtitle="Keep upcoming sessions, past visits, cancellations, and reschedules in one real customer booking hub."
-      heroTopContent={
-        <View style={styles.heroTopRow}>
-          <Pressable style={styles.heroBackButton} onPress={() => router.back()}>
-            <FontAwesome6 name="arrow-left-long" size={16} color="#fff" />
-            <Text style={styles.heroBackLabel}>Back</Text>
-          </Pressable>
-          <Pressable
-            style={styles.heroGhostButton}
-            onPress={() => router.push("/(tabs)/explore")}
-          >
-            <Text style={styles.heroGhostLabel}>Book another</Text>
-          </Pressable>
-        </View>
+      title="Appointments"
+      eyebrow={!isLoading && bookingBuckets.upcoming.length > 0 ? `${bookingBuckets.upcoming.length} upcoming` : undefined}
+      refreshing={isLoading && bookings.length > 0}
+      onRefresh={() => void loadBookings()}
+      action={
+        <Pressable
+          style={styles.headerAction}
+          onPress={() => router.push("/(tabs)/explore")}
+          accessibilityRole="button"
+          accessibilityLabel="Book an appointment"
+        >
+          <FontAwesome6 name="plus" size={14} color={tokens.colors.inkDeep} />
+          <Text style={styles.headerActionText}>Book</Text>
+        </Pressable>
       }
       heroContent={
-        <View style={styles.metricRail}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{bookingBuckets.live.length}</Text>
-            <Text style={styles.metricLabel}>Live now</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{bookingBuckets.upcoming.length}</Text>
-            <Text style={styles.metricLabel}>Upcoming</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{bookingBuckets.past.length}</Text>
-            <Text style={styles.metricLabel}>Past visits</Text>
-          </View>
-        </View>
-      }
-      contentTopOffset={24}
-      heroBottomPadding={32}
-      heroMinHeight={284}
-    >
-      {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
-
-      <View style={styles.filterPanel}>
-        <SectionHeader
-          title="Appointments"
-          subtitle="Open any booking for directions, join links, cancellation, or reschedule options."
-        />
-        <View style={styles.filterRail}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipRailScroll}
+          contentContainerStyle={styles.chipRail}
+        >
           {filterLabels.map((filter) => {
             const isActive = filter.id === activeFilter;
+            const count = countFor(filter.id);
             return (
               <Pressable
                 key={filter.id}
-                style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+                style={[styles.chip, isActive ? styles.chipActive : null]}
                 onPress={() => setActiveFilter(filter.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
               >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    isActive ? styles.filterChipTextActive : null,
-                  ]}
-                >
+                <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
                   {filter.label}
                 </Text>
+                {count > 0 ? (
+                  <Text style={[styles.chipCount, isActive ? styles.chipCountActive : null]}>
+                    {count}
+                  </Text>
+                ) : null}
               </Pressable>
             );
           })}
+        </ScrollView>
+      }
+    >
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+          <Pressable onPress={() => void loadBookings()} accessibilityRole="button">
+            <Text style={styles.errorRetry}>Try again</Text>
+          </Pressable>
         </View>
-      </View>
+      ) : null}
 
-      <View style={styles.listPanel}>
+      <View style={styles.list}>
         {isLoading ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Loading appointments...</Text>
-            <Text style={styles.emptyCaption}>
-              Pulling the same live customer booking feed your web account uses.
-            </Text>
-          </View>
-        ) : filteredBookings.length > 0 ? (
-          filteredBookings.map((booking) => (
-            <Pressable
-              key={booking.id}
-              style={styles.bookingCard}
-              onPress={() =>
-                router.push({
-                  pathname: "/appointments/[bookingId]",
-                  params: { bookingId: booking.id },
-                })
-              }
-            >
-              <View style={styles.bookingCardHeader}>
-                <View style={styles.bookingCardCopy}>
-                  <Text style={styles.bookingService}>{booking.service.name}</Text>
-                  <Text style={styles.bookingProvider}>
-                    {booking.provider.displayName}
-                  </Text>
-                </View>
-                <View style={[styles.statusPill, statusTone(booking.status)]}>
-                  <Text style={styles.statusText}>
-                    {booking.status.replaceAll("_", " ")}
-                  </Text>
-                </View>
+          [0, 1, 2].map((index) => (
+            <View key={index} style={[styles.skeletonCard, { opacity: 1 - index * 0.25 }]}>
+              <View style={styles.skeletonTile} />
+              <View style={styles.skeletonBody}>
+                <View style={styles.skeletonLineWide} />
+                <View style={styles.skeletonLine} />
               </View>
-
-              <View style={styles.bookingMetaGrid}>
-                <View style={styles.bookingMetaItem}>
-                  <FontAwesome6 name="calendar-days" size={14} color={tokens.colors.muted} />
-                  <Text style={styles.bookingMetaText}>
-                    {formatBookingDateLabel(booking.startsAt)}
-                  </Text>
-                </View>
-                <View style={styles.bookingMetaItem}>
-                  <FontAwesome6 name="clock" size={14} color={tokens.colors.muted} />
-                  <Text style={styles.bookingMetaText}>
-                    {formatBookingDateTime(booking.startsAt)}
-                  </Text>
-                </View>
-                <View style={styles.bookingMetaItem}>
-                  <FontAwesome6
-                    name={booking.channel === "VIDEO" ? "video" : "location-dot"}
-                    size={14}
-                    color={tokens.colors.muted}
-                  />
-                  <Text style={styles.bookingMetaText}>
-                    {booking.channel === "VIDEO"
-                      ? formatMeetingProvider(booking.meeting.provider)
-                      : booking.location?.name ||
-                        booking.location?.city ||
-                        "Provider location"}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.bookingFooter}>
-                <Text style={styles.bookingPrice}>
-                  {formatBookingMoney(booking.totalPriceCents, booking.currencyCode)}
-                </Text>
-                <View style={styles.bookingFooterBadges}>
-                  {hasActiveMeetingLink(booking.meeting) ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>Join link ready</Text>
-                    </View>
-                  ) : null}
-                  {canRescheduleBooking(booking) ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>Reschedulable</Text>
-                    </View>
-                  ) : null}
-                  {canCancelBooking(booking) ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>Cancelable</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            </Pressable>
+            </View>
           ))
+        ) : filteredBookings.length > 0 ? (
+          filteredBookings.map((booking) => {
+            const tile = dateTileParts(booking.startsAt);
+            const tone = statusTone(booking.status);
+            const live = isBookingLiveNow(booking);
+            return (
+              <Pressable
+                key={booking.id}
+                style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+                accessibilityRole="button"
+                onPress={() =>
+                  router.push({
+                    pathname: "/appointments/[bookingId]",
+                    params: { bookingId: booking.id },
+                  })
+                }
+              >
+                <View style={styles.dateTile}>
+                  <Text style={styles.dateTileWeekday}>{tile.weekday}</Text>
+                  <Text style={styles.dateTileDay}>{tile.day}</Text>
+                  <Text style={styles.dateTileMonth}>{tile.month}</Text>
+                </View>
+
+                <View style={styles.cardBody}>
+                  <View style={styles.cardTitleRow}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {booking.service.name}
+                    </Text>
+                    {live ? (
+                      <View style={styles.livePill}>
+                        <Text style={styles.livePillText}>Live</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusPill, tone.pill]}>
+                        <Text style={[styles.statusText, tone.text]}>
+                          {statusLabel(booking.status)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.cardMeta} numberOfLines={1}>
+                    {booking.provider.displayName} · {formatBookingTimeLabel(booking.startsAt)}
+                  </Text>
+                  <View style={styles.cardFooter}>
+                    <View style={styles.cardPlace}>
+                      <FontAwesome6
+                        name={booking.channel === "VIDEO" ? "video" : "location-dot"}
+                        size={12}
+                        color={tokens.colors.muted}
+                      />
+                      <Text style={styles.cardPlaceText} numberOfLines={1}>
+                        {booking.channel === "VIDEO"
+                          ? hasActiveMeetingLink(booking.meeting)
+                            ? `${formatMeetingProvider(booking.meeting.provider)} · link ready`
+                            : formatMeetingProvider(booking.meeting.provider)
+                          : booking.location?.name ||
+                            booking.location?.city ||
+                            "Provider location"}
+                      </Text>
+                    </View>
+                    <Text style={styles.cardPrice}>
+                      {formatBookingMoney(booking.totalPriceCents, booking.currencyCode)}
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })
         ) : (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No appointments in this view</Text>
-            <Text style={styles.emptyCaption}>
-              Book a provider from the marketplace, then come back here to manage the appointment.
+            <Text style={styles.emptyTitle}>
+              {activeFilter === "UPCOMING" ? "Nothing booked yet" : "No appointments here"}
+            </Text>
+            <Text style={styles.emptyBody}>
+              {activeFilter === "UPCOMING"
+                ? "Find a provider and book a time."
+                : "Switch the filter or book a new appointment."}
             </Text>
             <Pressable
               style={styles.emptyAction}
               onPress={() => router.push("/(tabs)/explore")}
+              accessibilityRole="button"
             >
-              <Text style={styles.emptyActionText}>Open marketplace</Text>
+              <Text style={styles.emptyActionText}>Find a provider</Text>
             </Pressable>
           </View>
         )}
@@ -301,236 +324,281 @@ export function AppointmentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  heroTopRow: {
+  headerAction: {
+    height: 44,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
+    gap: 6,
+    paddingHorizontal: 16,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.brand,
   },
-  heroBackButton: {
-    flexDirection: "row",
-    alignItems: "center",
+  headerActionText: {
+    color: tokens.colors.inkDeep,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  chipRailScroll: {
+    marginHorizontal: -20,
+  },
+  chipRail: {
+    paddingHorizontal: 20,
     gap: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
   },
-  heroBackLabel: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  heroGhostButton: {
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  heroGhostLabel: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  metricRail: {
+  chip: {
+    height: 40,
     flexDirection: "row",
-    gap: 10,
-  },
-  metricCard: {
-    flex: 1,
-    borderRadius: tokens.radius.md,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 3,
-  },
-  metricValue: {
-    color: "#fff",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  metricLabel: {
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  errorBanner: {
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: "#f5c7c4",
-    backgroundColor: "#fff2f0",
-    color: tokens.colors.danger,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  filterPanel: {
-    gap: 14,
-  },
-  filterRail: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  filterChip: {
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
   },
-  filterChipActive: {
-    borderColor: tokens.colors.ink,
-    backgroundColor: tokens.colors.ink,
+  chipActive: {
+    borderColor: tokens.colors.inkDeep,
+    backgroundColor: tokens.colors.inkDeep,
   },
-  filterChipText: {
+  chipText: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
-  filterChipTextActive: {
-    color: "#fff",
+  chipTextActive: {
+    color: "#ffffff",
   },
-  listPanel: {
-    gap: 14,
-  },
-  bookingCard: {
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    padding: 18,
-    gap: 15,
-  },
-  bookingCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  bookingCardCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  bookingService: {
-    color: tokens.colors.ink,
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-    letterSpacing: -0.6,
-  },
-  bookingProvider: {
+  chipCount: {
     color: tokens.colors.muted,
+    fontSize: 12,
+    fontFamily: tokens.font.semibold,
+  },
+  chipCountActive: {
+    color: tokens.colors.onNavyMuted,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
     fontSize: 14,
     lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  list: {
+    gap: 12,
+  },
+  skeletonCard: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+  },
+  skeletonTile: {
+    width: 56,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonBody: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 10,
+  },
+  skeletonLineWide: {
+    height: 14,
+    width: "70%",
+    borderRadius: 7,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonLine: {
+    height: 12,
+    width: "45%",
+    borderRadius: 6,
+    backgroundColor: tokens.colors.border,
+  },
+  card: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+  },
+  cardPressed: {
+    opacity: 0.8,
+  },
+  dateTile: {
+    width: 56,
+    minHeight: 64,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.inkDeep,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+  },
+  dateTileWeekday: {
+    color: tokens.colors.onNavyMuted,
+    fontSize: 11,
+    fontFamily: tokens.font.semibold,
+  },
+  dateTileDay: {
+    color: "#ffffff",
+    fontSize: 20,
+    lineHeight: 24,
+    fontFamily: tokens.font.display,
+  },
+  dateTileMonth: {
+    color: tokens.colors.onNavyMuted,
+    fontSize: 11,
+    fontFamily: tokens.font.semibold,
+  },
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+    justifyContent: "center",
+  },
+  cardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  cardTitle: {
+    flex: 1,
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.2,
+  },
+  cardMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 2,
+  },
+  cardPlace: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  cardPlaceText: {
+    flex: 1,
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  cardPrice: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
   },
   statusPill: {
     borderRadius: tokens.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  statusConfirmed: {
-    backgroundColor: "#e6f7ec",
-  },
-  statusPending: {
-    backgroundColor: "#fff4de",
-  },
-  statusCompleted: {
-    backgroundColor: "#eef2f7",
-  },
-  statusCancelled: {
-    backgroundColor: "#fde9e6",
-  },
-  statusLive: {
-    backgroundColor: "#e1f7f0",
-  },
-  statusDefault: {
-    backgroundColor: "#edf2fa",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   statusText: {
-    color: tokens.colors.ink,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
   },
-  bookingMetaGrid: {
-    gap: 10,
+  statusConfirmed: {
+    backgroundColor: tokens.colors.successSoft,
   },
-  bookingMetaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  statusTextConfirmed: {
+    color: tokens.colors.success,
   },
-  bookingMetaText: {
-    flex: 1,
+  statusPending: {
+    backgroundColor: tokens.colors.warningSoft,
+  },
+  statusTextPending: {
+    color: tokens.colors.warning,
+  },
+  statusCancelled: {
+    backgroundColor: tokens.colors.dangerSoft,
+  },
+  statusTextCancelled: {
+    color: tokens.colors.danger,
+  },
+  statusLive: {
+    backgroundColor: tokens.colors.brandSoft,
+  },
+  statusTextLive: {
+    color: tokens.colors.brandDeep,
+  },
+  statusDefault: {
+    backgroundColor: tokens.colors.surfaceSoft,
+  },
+  statusTextDefault: {
     color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
   },
-  bookingFooter: {
-    gap: 10,
-  },
-  bookingPrice: {
-    color: tokens.colors.ink,
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  bookingFooterBadges: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  badge: {
+  livePill: {
     borderRadius: tokens.radius.pill,
-    backgroundColor: "#f2f6dc",
+    backgroundColor: tokens.colors.brand,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
-  badgeText: {
-    color: "#5f7d16",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.3,
+  livePillText: {
+    color: tokens.colors.inkDeep,
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
   },
   emptyCard: {
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
     borderStyle: "dashed",
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
-    paddingVertical: 24,
-    gap: 8,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    alignItems: "center",
+    gap: 4,
   },
   emptyTitle: {
     color: tokens.colors.ink,
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-    letterSpacing: -0.4,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
   },
-  emptyCaption: {
+  emptyBody: {
     color: tokens.colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    textAlign: "center",
+    fontFamily: tokens.font.regular,
   },
   emptyAction: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.brand,
+    marginTop: 10,
+    height: 44,
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyActionText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
+    color: tokens.colors.inkDeep,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
   },
 });

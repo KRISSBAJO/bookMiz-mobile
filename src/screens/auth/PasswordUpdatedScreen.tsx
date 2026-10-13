@@ -1,3 +1,4 @@
+import { FontAwesome6 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -10,15 +11,15 @@ export function PasswordUpdatedScreen() {
 
   return (
     <AuthShell
-      eyebrow="Success"
       title="Password updated"
-      subtitle="Your account is ready. Jump back into BookMiz with your refreshed password and live customer session."
       heroImage={require("../../../assets/bookmiz/hospital.png")}
+      showBack={false}
     >
       <View style={styles.badge}>
-        <Text style={styles.badgeText}>✓</Text>
+        <FontAwesome6 name="check" size={30} color={tokens.colors.inkDeep} />
       </View>
-      <AuthButton label="Continue" onPress={() => router.replace("/(tabs)")} />
+      <Text style={styles.body}>You're logged in. Your new password works from now on.</Text>
+      <AuthButton label="Continue" icon="arrow-right" onPress={() => router.replace("/(tabs)")} />
     </AuthShell>
   );
 }
@@ -26,17 +27,20 @@ export function PasswordUpdatedScreen() {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: "center",
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: "#35b46b",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: tokens.colors.brand,
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 20,
+    marginTop: 8,
   },
-  badgeText: {
-    color: "#fff",
-    fontSize: 34,
-    fontWeight: "800",
+  body: {
+    color: tokens.colors.muted,
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
+    lineHeight: 24,
+    textAlign: "center",
+    marginBottom: 8,
   },
 });

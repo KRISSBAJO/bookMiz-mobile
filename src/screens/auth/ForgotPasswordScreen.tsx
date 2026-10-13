@@ -11,27 +11,30 @@ import { tokens } from "@/src/theme/tokens";
 export function ForgotPasswordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
-  const [email, setEmail] = useState(params.email ?? "maya@bookmiz.com");
+  const [email, setEmail] = useState(params.email ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   return (
     <AuthShell
-      eyebrow="Reset password"
-      title="Send a reset link"
-      subtitle="Enter the email address on your BookMiz account and we’ll send a reset token so you can continue."
+      title="Forgot your password?"
+      subtitle="Enter your email and we'll send you a code."
       heroImage={require("../../../assets/bookmiz/hospital.png")}
     >
       <AuthField
-        label="Email"
-        placeholder="email@domain.com"
+        label="Email address"
+        placeholder="you@email.com"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
+        autoComplete="email"
       />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <AuthButton
-        label={isSubmitting ? "Sending..." : "Send reset email"}
-        disabled={isSubmitting}
+        label="Send the code"
+        icon="arrow-right"
+        loading={isSubmitting}
+        disabled={isSubmitting || !email.trim()}
         onPress={async () => {
           try {
             setError(null);
@@ -52,16 +55,15 @@ export function ForgotPasswordScreen() {
           }
         }}
       />
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
   errorText: {
-    color: "#d44c3f",
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: "center",
+    color: tokens.colors.danger,
+    fontSize: 14,
+    fontFamily: tokens.font.regular,
+    lineHeight: 20,
   },
 });

@@ -14,34 +14,37 @@ export function VerifyCodeScreen() {
 
   return (
     <AuthShell
-      eyebrow="Verify reset"
-      title="Paste the reset token"
-      subtitle={`We sent a password reset token to ${params.email ?? "your email address"}. Paste it here to continue.`}
+      title="Enter your code"
+      subtitle={`We sent a code to ${params.email ?? "your email"}.`}
       heroImage={require("../../../assets/bookmiz/barber.png")}
+      footer={
+        <View style={styles.rowCenter}>
+          <Text style={styles.helper}>Didn’t get it? </Text>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() =>
+              router.replace({
+                pathname: "/forgot-password",
+                params: { email: params.email ?? "" },
+              })
+            }
+          >
+            <Text style={styles.link}>Resend the code</Text>
+          </Pressable>
+        </View>
+      }
     >
       <AuthField
-        label="Reset token"
-        placeholder="Paste the token from your email"
+        label="Code"
+        placeholder="Paste the code from your email"
         value={token}
         onChangeText={setToken}
+        autoComplete="one-time-code"
       />
-
-      <View style={styles.rowCenter}>
-        <Text style={styles.helper}>Didn’t receive a reset email?</Text>
-        <Pressable
-          onPress={() =>
-            router.replace({
-              pathname: "/forgot-password",
-              params: { email: params.email ?? "" },
-            })
-          }
-        >
-          <Text style={styles.link}> Check spam or resend</Text>
-        </Pressable>
-      </View>
 
       <AuthButton
         label="Continue"
+        icon="arrow-right"
         disabled={!token.trim()}
         onPress={() =>
           router.push({
@@ -62,11 +65,12 @@ const styles = StyleSheet.create({
   },
   helper: {
     color: tokens.colors.muted,
-    fontSize: 13,
+    fontSize: 15,
+    fontFamily: tokens.font.regular,
   },
   link: {
-    color: tokens.colors.brandDeep,
-    fontSize: 13,
-    fontWeight: "800",
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
   },
 });

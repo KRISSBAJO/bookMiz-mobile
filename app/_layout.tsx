@@ -1,11 +1,12 @@
 import { DefaultTheme, ThemeProvider } from "expo-router/react-navigation";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { SessionProvider } from "@/src/store/session-context";
-import { tokens } from "@/src/theme/tokens";
+import { fontAssets, tokens } from "@/src/theme/tokens";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -28,9 +29,18 @@ const navigationTheme = {
 };
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
+
   useEffect(() => {
-    SplashScreen.hideAsync();
-  }, []);
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontError, fontsLoaded]);
+
+  // Fonts failing to load should never block the app; fall back to system fonts.
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
     <SessionProvider>

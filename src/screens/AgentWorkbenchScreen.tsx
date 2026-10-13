@@ -1,7 +1,8 @@
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -13,7 +14,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AgentOperationsPanel } from "@/src/components/agent/AgentOperationsPanel";
+import { AuthButton } from "@/src/components/auth/AuthButton";
+import { AuthField } from "@/src/components/auth/AuthField";
 import { Screen } from "@/src/components/Screen";
+import { SectionHeader } from "@/src/components/SectionHeader";
 import {
   createAgentPayoutRequest,
   getAgentDashboard,
@@ -157,7 +161,7 @@ function getProcessorLabel(processor: PlatformAgentPayoutAccount["processor"]) {
 
 function commissionSourceLabel(source: PlatformAgentCommission["sourceType"]) {
   return {
-    SUBSCRIPTION: "Subscription revenue",
+    SUBSCRIPTION: "Subscription",
     QUOTE_UNLOCK: "Lead unlock",
     MANUAL_ADJUSTMENT: "Manual adjustment",
     REVERSAL: "Reversal",
@@ -486,75 +490,99 @@ export function AgentWorkbenchScreen() {
     }
   }, [dashboard, loadDashboard, payoutForm]);
 
-  const heroTopContent = (
-    <View style={styles.heroTopRow}>
-      <View style={styles.heroPill}>
-        <FontAwesome6 name="link" size={12} color={tokens.colors.gold} />
-        <Text style={styles.heroPillText}>Platform growth desk</Text>
-      </View>
-      <View style={styles.heroPill}>
-        <FontAwesome6 name="location-dot" size={12} color={tokens.colors.brand} />
-        <Text style={styles.heroPillText}>
-          {getCountryLabel(operatingCountryCode)} / {activeCurrencyCode}
-        </Text>
-      </View>
-    </View>
-  );
+  const canRequestPayout = activePayoutAccounts.length > 0;
+  const defaultAccount = dashboard?.payoutWorkspace.account ?? null;
 
-  const heroContent = (
-    <View style={styles.heroContentWrap}>
-      <View style={styles.heroSummaryCard}>
-        <Text style={styles.heroSummaryLabel}>Active providers</Text>
-        <Text style={styles.heroSummaryValue}>
-          {isLoading ? "—" : dashboard?.summary.activeProviderCount ?? 0}
-        </Text>
+  const renderAttributionRow = (attribution: PlatformAgentAttribution, showEnds: boolean) => {
+    const expiring = isAttributionExpiringSoon(attribution);
+    const statusKey = expiring ? "PENDING" : attribution.status;
+    const name = attribution.provider?.displayName ?? "Provider removed";
+    return (
+      <View key={attribution.id} style={styles.row}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initialsFor(name)}</Text>
+        </View>
+        <View style={styles.rowBody}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={styles.rowMeta} numberOfLines={1}>
+            {providerLocationLabel(attribution)}
+            {attribution.provider?.serviceModel ? ` · ${formatStatusLabel(attribution.provider.serviceModel)}` : ""}
+            {showEnds ? ` · Ends ${formatDate(attribution.attributionEndsAt)}` : ""}
+          </Text>
+        </View>
+        <View style={[styles.statusPill, getStatusTone(statusKey)]}>
+          <Text style={[styles.statusText, getStatusTextTone(statusKey)]}>
+            {expiring ? "Expiring soon" : formatStatusLabel(attribution.status)}
+          </Text>
+        </View>
       </View>
-      <View style={styles.heroSummaryCard}>
-        <Text style={styles.heroSummaryLabel}>Available now</Text>
-        <Text style={styles.heroSummaryValue}>
-          {isLoading
-            ? "—"
-            : formatMoney(dashboard?.summary.availableCommissionCents ?? 0, activeCurrencyCode)}
-        </Text>
+    );
+  };
+
+  const payoutMethodCard = (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View style={styles.rowBody}>
+          <Text style={styles.cardTitle}>
+            {defaultAccount ? defaultAccount.destinationLabel || defaultAccount.bankName : "No payout method"}
+          </Text>
+          <Text style={styles.rowMeta}>
+            {defaultAccount
+              ? `${getProcessorLabel(defaultAccount.processor)} · ${defaultAccount.bankName} · ••••${defaultAccount.accountNumberLast4 ?? "—"}`
+              : "Add a bank account to receive payouts."}
+          </Text>
+        </View>
+        {defaultAccount ? (
+          <View style={[styles.statusPill, styles.statusSuccess]}>
+            <Text style={[styles.statusText, styles.statusTextSuccess]}>Default</Text>
+          </View>
+        ) : null}
       </View>
-      <View style={styles.heroSummaryCard}>
-        <Text style={styles.heroSummaryLabel}>Minimum payout</Text>
-        <Text style={styles.heroSummaryValue}>
-          {isLoading
-            ? "—"
-            : formatMoney(dashboard?.summary.minimumPayoutCents ?? 0, activeCurrencyCode)}
-        </Text>
-      </View>
+      <AuthButton
+        label={payoutAccounts.length > 0 ? "Manage payout method" : "Add payout method"}
+        variant="secondary"
+        style={styles.secondaryButton}
+        onPress={() => openAddAccountModal()}
+      />
     </View>
   );
 
   return (
     <Screen
-      eyebrow="Agent"
-      title="Grow providers and keep commission flow clean"
-      subtitle={`${agentName} can track attributed providers, monitor revenue readiness, and manage payout setup from one polished mobile desk.`}
-      heroTopContent={heroTopContent}
-      heroContent={heroContent}
-      contentTopOffset={22}
-      heroBottomPadding={32}
-      heroMinHeight={320}
+      title="Agent desk"
+      subtitle={`${agentName} · ${getCountryLabel(operatingCountryCode)} · ${activeCurrencyCode}`}
+      showBack={false}
+      refreshing={isLoading && dashboard !== null}
+      onRefresh={() => void loadDashboard()}
     >
+      <AuthButton
+        label="Request payout"
+        disabled={!canRequestPayout}
+        onPress={() => openPayoutRequestModal()}
+      />
+
       {error ? (
-        <View style={styles.bannerError}>
-          <FontAwesome6 name="triangle-exclamation" size={14} color={tokens.colors.danger} />
-          <Text style={styles.bannerErrorText}>{error}</Text>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+          <Pressable onPress={() => void loadDashboard()} accessibilityRole="button">
+            <Text style={styles.errorRetry}>Try again</Text>
+          </Pressable>
         </View>
       ) : null}
       {success ? (
-        <View style={styles.bannerSuccess}>
-          <FontAwesome6 name="circle-check" size={14} color={tokens.colors.success} />
-          <Text style={styles.bannerSuccessText}>{success}</Text>
+        <View style={styles.successBox}>
+          <Text style={styles.successText}>{success}</Text>
         </View>
       ) : null}
 
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.railScroll}
         contentContainerStyle={styles.tabRow}
       >
         {agentTabs.map((tab) => {
@@ -562,13 +590,15 @@ export function AgentWorkbenchScreen() {
           return (
             <Pressable
               key={tab.id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
               style={[styles.tabChip, active ? styles.tabChipActive : null]}
               onPress={() => setActiveTab(tab.id)}
             >
               <FontAwesome6
                 name={tab.icon}
-                size={12}
-                color={active ? "#fff" : tokens.colors.ink}
+                size={14}
+                color={active ? "#ffffff" : tokens.colors.ink}
               />
               <Text style={[styles.tabChipText, active ? styles.tabChipTextActive : null]}>
                 {tab.label}
@@ -578,440 +608,209 @@ export function AgentWorkbenchScreen() {
         })}
       </ScrollView>
 
-      <View style={styles.statGrid}>
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>Expiring soon</Text>
-          <Text style={styles.statValue}>
-            {dashboard?.summary.expiringAttributionCount ?? 0}
-          </Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>Pending</Text>
-          <Text style={styles.statValue}>
-            {formatMoney(commissionTotals.pending, activeCurrencyCode)}
-          </Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>Requested</Text>
-          <Text style={styles.statValue}>
-            {formatMoney(commissionTotals.requested, activeCurrencyCode)}
-          </Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>Paid out</Text>
-          <Text style={styles.statValue}>
-            {formatMoney(commissionTotals.paid, activeCurrencyCode)}
-          </Text>
-        </View>
-      </View>
+      {isLoading && !dashboard ? <SkeletonRows /> : null}
 
-      {activeTab === "overview" ? (
+      {activeTab === "overview" && dashboard ? (
         <>
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <View style={styles.panelHeaderCopy}>
-                <Text style={styles.panelEyebrow}>Growth book</Text>
-                <Text style={styles.panelTitle}>Your attributed providers</Text>
-                <Text style={styles.panelSubtitle}>
-                  Active providers, expiring windows, and the provider-side markets they sit in.
-                </Text>
-              </View>
-              <View style={styles.countPill}>
-                <Text style={styles.countPillText}>
-                  {(dashboard?.attributions.length ?? 0).toString()} tracked
-                </Text>
-              </View>
-            </View>
-
-            {(dashboard?.attributions.length ?? 0) > 0 ? (
-              (dashboard?.attributions.slice(0, 4) ?? []).map((attribution) => (
-                <View key={attribution.id} style={styles.featureCard}>
-                  <View style={styles.featureHeader}>
-                    <View style={styles.featureCopy}>
-                      <Text style={styles.featureTitle}>
-                        {attribution.provider?.displayName ?? "Provider removed"}
-                      </Text>
-                      <Text style={styles.featureMeta}>
-                        {providerLocationLabel(attribution)} ·{" "}
-                        {attribution.provider?.serviceModel ?? "Service lane pending"}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        getStatusTone(
-                          isAttributionExpiringSoon(attribution)
-                            ? "PENDING"
-                            : attribution.status,
-                        ),
-                      ]}
-                    >
-                      <Text style={styles.statusText}>
-                        {isAttributionExpiringSoon(attribution)
-                          ? "Expiring soon"
-                          : attribution.status}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.featureMetricGrid}>
-                    <View style={styles.featureMetricCard}>
-                      <Text style={styles.featureMetricLabel}>Starts</Text>
-                      <Text style={styles.featureMetricValue}>{formatDate(attribution.startsAt)}</Text>
-                    </View>
-                    <View style={styles.featureMetricCard}>
-                      <Text style={styles.featureMetricLabel}>Ends</Text>
-                      <Text style={styles.featureMetricValue}>
-                        {formatDate(attribution.attributionEndsAt)}
-                      </Text>
-                    </View>
-                    <View style={styles.featureMetricCard}>
-                      <Text style={styles.featureMetricLabel}>Email</Text>
-                      <Text style={styles.featureMetricValue} numberOfLines={1}>
-                        {attribution.provider?.businessEmail ?? "Not set"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {attribution.notes ? (
-                    <Text style={styles.featureNote}>{attribution.notes}</Text>
-                  ) : null}
-                </View>
-              ))
-            ) : (
-              <Text style={styles.emptyState}>
-                Once providers are attributed to your growth book, they will show up here.
+          <View style={styles.card}>
+            <View style={styles.balanceHead}>
+              <Text style={styles.rowMeta}>Available now</Text>
+              <Text style={styles.balanceBig}>
+                {formatMoney(commissionTotals.available, activeCurrencyCode)}
               </Text>
-            )}
+            </View>
+            {[
+              { label: "Pending", value: commissionTotals.pending },
+              { label: "Requested", value: commissionTotals.requested },
+              { label: "Paid out", value: commissionTotals.paid },
+              { label: "Minimum payout", value: dashboard.summary.minimumPayoutCents ?? 0 },
+            ].map((item) => (
+              <View key={item.label} style={styles.balanceRow}>
+                <Text style={styles.balanceLabel}>{item.label}</Text>
+                <Text style={styles.balanceValue}>
+                  {formatMoney(item.value, activeCurrencyCode)}
+                </Text>
+              </View>
+            ))}
           </View>
 
-          <View style={styles.rowPanels}>
-            <View style={[styles.panel, styles.halfPanel]}>
-              <Text style={styles.panelEyebrow}>Commission balance</Text>
-              <Text style={styles.panelTitle}>Where your revenue stands</Text>
-              {[
-                { label: "Pending", value: commissionTotals.pending },
-                { label: "Available", value: commissionTotals.available },
-                { label: "Requested", value: commissionTotals.requested },
-                { label: "Paid", value: commissionTotals.paid },
-              ].map((item) => (
-                <View key={item.label} style={styles.balanceRow}>
-                  <Text style={styles.balanceLabel}>{item.label}</Text>
-                  <Text style={styles.balanceValue}>
-                    {formatMoney(item.value, activeCurrencyCode)}
-                  </Text>
-                </View>
-              ))}
-            </View>
+          {payoutMethodCard}
 
-            <View style={[styles.panel, styles.halfPanel]}>
-              <Text style={styles.panelEyebrow}>Payout readiness</Text>
-              <Text style={styles.panelTitle}>Finance settles against your default method</Text>
-              <Text style={styles.panelSubtitle}>
-                Keep one active payout account on file so settled commissions can move quickly.
-              </Text>
-
-              <View style={styles.defaultMethodCard}>
-                <Text style={styles.defaultMethodTitle}>
-                  {dashboard?.payoutWorkspace.account
-                    ? `${getProcessorLabel(dashboard.payoutWorkspace.account.processor)} default`
-                    : "No default payout method"}
-                </Text>
-                <Text style={styles.defaultMethodBody}>
-                  {dashboard?.payoutWorkspace.account
-                    ? `${dashboard.payoutWorkspace.account.bankName} • ••••${dashboard.payoutWorkspace.account.accountNumberLast4 ?? "—"}`
-                    : "Add a payout method before requesting withdrawal."}
-                </Text>
-                <View style={styles.inlineActions}>
-                  <Pressable style={styles.secondaryButton} onPress={() => openAddAccountModal()}>
-                    <FontAwesome6 name="landmark" size={14} color={tokens.colors.ink} />
-                    <Text style={styles.secondaryButtonText}>
-                      {payoutAccounts.length > 0 ? "Manage methods" : "Add payout method"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={[
-                      styles.primaryButton,
-                      activePayoutAccounts.length === 0 ? styles.buttonDisabled : null,
-                    ]}
-                    onPress={() => openPayoutRequestModal()}
-                    disabled={activePayoutAccounts.length === 0}
-                  >
-                    <FontAwesome6 name="receipt" size={14} color={tokens.colors.inkDeep} />
-                    <Text style={styles.primaryButtonText}>Request payout</Text>
-                  </Pressable>
-                </View>
+          <View style={styles.section}>
+            <SectionHeader
+              title="Providers"
+              subtitle={`${dashboard.summary.activeProviderCount ?? 0} active · ${dashboard.summary.expiringAttributionCount ?? 0} expiring soon`}
+              actionLabel={dashboard.attributions.length > 4 ? "See all" : undefined}
+              onAction={dashboard.attributions.length > 4 ? () => setActiveTab("providers") : undefined}
+            />
+            {dashboard.attributions.length > 0 ? (
+              dashboard.attributions.slice(0, 4).map((attribution) => renderAttributionRow(attribution, false))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No providers yet</Text>
+                <Text style={styles.emptyBody}>Providers you bring on show up here.</Text>
               </View>
-            </View>
+            )}
           </View>
         </>
       ) : null}
 
       {activeTab === "operations" ? <AgentOperationsPanel /> : null}
 
-      {activeTab === "providers" ? (
-        <View style={styles.panel}>
-          <View style={styles.panelHeaderRow}>
-            <View style={styles.panelHeaderCopy}>
-              <Text style={styles.panelEyebrow}>Attributed providers</Text>
-              <Text style={styles.panelTitle}>Provider portfolio under your acquisition window</Text>
-              <Text style={styles.panelSubtitle}>
-                Each card shows the service lane, country, and attribution timing currently tied to you.
-              </Text>
-            </View>
-            <View style={styles.countPill}>
-              <Text style={styles.countPillText}>
-                {countStatus(dashboard?.attributions ?? [], "ACTIVE")} active
-              </Text>
-            </View>
-          </View>
-
-          {(dashboard?.attributions.length ?? 0) > 0 ? (
-            (dashboard?.attributions ?? []).map((attribution) => (
-              <View key={attribution.id} style={styles.featureCard}>
-                <View style={styles.featureHeader}>
-                  <View style={styles.featureCopy}>
-                    <Text style={styles.featureTitle}>
-                      {attribution.provider?.displayName ?? "Provider removed"}
-                    </Text>
-                    <Text style={styles.featureMeta}>
-                      {attribution.provider?.businessEmail ?? "No business email"}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusPill, getStatusTone(attribution.status)]}>
-                    <Text style={styles.statusText}>{attribution.status}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.featureMetricGrid}>
-                  <View style={styles.featureMetricCard}>
-                    <Text style={styles.featureMetricLabel}>Service lane</Text>
-                    <Text style={styles.featureMetricValue}>
-                      {attribution.provider?.serviceModel ?? "—"}
-                    </Text>
-                  </View>
-                  <View style={styles.featureMetricCard}>
-                    <Text style={styles.featureMetricLabel}>Country</Text>
-                    <Text style={styles.featureMetricValue}>
-                      {attribution.provider?.primaryLocation?.countryCode ?? "—"}
-                    </Text>
-                  </View>
-                  <View style={styles.featureMetricCard}>
-                    <Text style={styles.featureMetricLabel}>Ends</Text>
-                    <Text style={styles.featureMetricValue}>
-                      {formatDate(attribution.attributionEndsAt)}
-                    </Text>
-                  </View>
-                </View>
-
-                {attribution.notes ? (
-                  <Text style={styles.featureNote}>{attribution.notes}</Text>
-                ) : null}
-              </View>
-            ))
+      {activeTab === "providers" && dashboard ? (
+        <View style={styles.section}>
+          <SectionHeader
+            title="Providers"
+            subtitle={`${countStatus(dashboard.attributions, "ACTIVE")} active of ${dashboard.attributions.length}`}
+          />
+          {dashboard.attributions.length > 0 ? (
+            dashboard.attributions.map((attribution) => renderAttributionRow(attribution, true))
           ) : (
-            <Text style={styles.emptyState}>No attributed providers yet.</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No providers yet</Text>
+              <Text style={styles.emptyBody}>Providers you bring on show up here.</Text>
+            </View>
           )}
         </View>
       ) : null}
 
-      {activeTab === "commissions" ? (
-        <View style={styles.panel}>
-          <View style={styles.panelHeaderRow}>
-            <View style={styles.panelHeaderCopy}>
-              <Text style={styles.panelEyebrow}>Commission ledger</Text>
-              <Text style={styles.panelTitle}>Every monetization event tied to your book</Text>
-              <Text style={styles.panelSubtitle}>
-                Subscription revenue, lead unlocks, reversals, and what is already ready for payout.
-              </Text>
-            </View>
-            <View style={styles.countPill}>
-              <Text style={styles.countPillText}>
-                {(dashboard?.commissions.length ?? 0).toString()} rows
-              </Text>
-            </View>
-          </View>
-
-          {(dashboard?.commissions.length ?? 0) > 0 ? (
-            (dashboard?.commissions ?? []).map((commission) => (
-              <View key={commission.id} style={styles.featureCard}>
-                <View style={styles.featureHeader}>
-                  <View style={styles.featureCopy}>
-                    <Text style={styles.featureTitle}>
-                      {commission.provider?.displayName ?? "Provider removed"}
+      {activeTab === "commissions" && dashboard ? (
+        <View style={styles.section}>
+          <SectionHeader
+            title="Commissions"
+            subtitle={`${dashboard.commissions.length} ${dashboard.commissions.length === 1 ? "entry" : "entries"} · ${availableCommissionCount} available`}
+          />
+          {dashboard.commissions.length > 0 ? (
+            dashboard.commissions.map((commission) => (
+              <View key={commission.id} style={styles.row}>
+                <View style={styles.rowBody}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>
+                    {commission.provider?.displayName ?? "Provider removed"}
+                  </Text>
+                  <Text style={styles.rowMeta} numberOfLines={1}>
+                    {commissionSourceLabel(commission.sourceType)} · {commission.commissionPercent}% of{" "}
+                    {formatMoney(commission.grossAmountCents, commission.currencyCode)}
+                  </Text>
+                  {commission.note ? (
+                    <Text style={styles.rowNote} numberOfLines={2}>
+                      {commission.note}
                     </Text>
-                    <Text style={styles.featureMeta}>
-                      {commissionSourceLabel(commission.sourceType)} · available {formatDate(commission.availableAt)}
-                    </Text>
-                  </View>
+                  ) : null}
+                </View>
+                <View style={styles.rowEnd}>
+                  <Text style={styles.rowAmount}>
+                    {formatMoney(commission.commissionAmountCents, commission.currencyCode)}
+                  </Text>
                   <View style={[styles.statusPill, getStatusTone(commission.status)]}>
-                    <Text style={styles.statusText}>{commission.status}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.metricRows}>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Gross amount</Text>
-                    <Text style={styles.metricValue}>
-                      {formatMoney(commission.grossAmountCents, commission.currencyCode)}
+                    <Text style={[styles.statusText, getStatusTextTone(commission.status)]}>
+                      {formatStatusLabel(commission.status)}
                     </Text>
                   </View>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Your commission</Text>
-                    <Text style={styles.metricValue}>
-                      {formatMoney(commission.commissionAmountCents, commission.currencyCode)}
-                    </Text>
-                  </View>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Commission rate</Text>
-                    <Text style={styles.metricValue}>{commission.commissionPercent}%</Text>
-                  </View>
                 </View>
-
-                {commission.note ? <Text style={styles.featureNote}>{commission.note}</Text> : null}
               </View>
             ))
           ) : (
-            <Text style={styles.emptyState}>No commissions yet.</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No commissions yet</Text>
+              <Text style={styles.emptyBody}>Earnings from your providers show up here.</Text>
+            </View>
           )}
         </View>
       ) : null}
 
-      {activeTab === "payouts" ? (
+      {activeTab === "payouts" && dashboard ? (
         <>
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <View style={styles.panelHeaderCopy}>
-                <Text style={styles.panelEyebrow}>Payout workspace</Text>
-                <Text style={styles.panelTitle}>Method, requests, and payout readiness</Text>
-                <Text style={styles.panelSubtitle}>
-                  Default account, supported rails, and finance request history in one mobile surface.
-                </Text>
-              </View>
-              <View style={styles.countPill}>
-                <Text style={styles.countPillText}>
-                  {activePayoutAccounts.length} active methods
-                </Text>
-              </View>
-            </View>
+          {payoutMethodCard}
 
-            <View style={styles.defaultMethodCard}>
-              <Text style={styles.defaultMethodTitle}>
-                {dashboard?.payoutWorkspace.account
-                  ? `${getProcessorLabel(dashboard.payoutWorkspace.account.processor)} default`
-                  : "No default payout method"}
-              </Text>
-              <Text style={styles.defaultMethodBody}>
-                {dashboard?.payoutWorkspace.account
-                  ? `${dashboard.payoutWorkspace.account.bankName} • ••••${dashboard.payoutWorkspace.account.accountNumberLast4 ?? "—"}`
-                  : "Add an active payout method before requesting withdrawal."}
-              </Text>
-              <View style={styles.metricRows}>
-                <View style={styles.metricRow}>
-                  <Text style={styles.metricLabel}>Available entries</Text>
-                  <Text style={styles.metricValue}>{availableCommissionCount}</Text>
-                </View>
-                <View style={styles.metricRow}>
-                  <Text style={styles.metricLabel}>Minimum payout</Text>
-                  <Text style={styles.metricValue}>
-                    {formatMoney(dashboard?.summary.minimumPayoutCents ?? 0, activeCurrencyCode)}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.secondaryButton} onPress={() => openAddAccountModal()}>
-                  <FontAwesome6 name="building-columns" size={14} color={tokens.colors.ink} />
-                  <Text style={styles.secondaryButtonText}>
-                    {payoutAccounts.length > 0 ? "Manage payout method" : "Add payout method"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    activePayoutAccounts.length === 0 ? styles.buttonDisabled : null,
-                  ]}
-                  onPress={() => openPayoutRequestModal()}
-                  disabled={activePayoutAccounts.length === 0}
-                >
-                  <FontAwesome6 name="money-check-dollar" size={14} color={tokens.colors.inkDeep} />
-                  <Text style={styles.primaryButtonText}>Request payout</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Saved payout methods</Text>
-            {(dashboard?.payoutWorkspace.accounts.length ?? 0) > 0 ? (
-              (dashboard?.payoutWorkspace.accounts ?? []).map((account) => (
-                <View key={account.id} style={styles.featureCard}>
-                  <View style={styles.featureHeader}>
-                    <View style={styles.featureCopy}>
-                      <Text style={styles.featureTitle}>
-                        {account.destinationLabel || account.bankName}
-                      </Text>
-                      <Text style={styles.featureMeta}>
-                        {getCountryLabel(account.countryCode)} · {account.bankName} · ••••
-                        {account.accountNumberLast4 ?? "—"}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusPill, getStatusTone(account.status)]}>
-                      <Text style={styles.statusText}>
-                        {account.isDefault ? "DEFAULT" : account.status}
-                      </Text>
+          <View style={styles.section}>
+            <SectionHeader
+              title="Saved methods"
+              subtitle={`${activePayoutAccounts.length} active`}
+            />
+            {dashboard.payoutWorkspace.accounts.length > 0 ? (
+              dashboard.payoutWorkspace.accounts.map((account) => (
+                <View key={account.id} style={styles.row}>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {account.destinationLabel || account.bankName}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      {getCountryLabel(account.countryCode)} · {account.bankName} · ••••
+                      {account.accountNumberLast4 ?? "—"}
+                    </Text>
+                    <View style={styles.rowLinks}>
+                      <Pressable
+                        accessibilityRole="button"
+                        hitSlop={8}
+                        onPress={() => openAddAccountModal(account)}
+                      >
+                        <Text style={styles.linkText}>Edit</Text>
+                      </Pressable>
+                      {!account.isDefault ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          hitSlop={8}
+                          onPress={() => void handleSetDefaultAccount(account.id)}
+                          disabled={settingDefaultAccountId === account.id}
+                        >
+                          <Text style={styles.linkText}>
+                            {settingDefaultAccountId === account.id ? "Saving…" : "Make default"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
-
-                  <View style={styles.inlineActions}>
-                    <Pressable style={styles.secondaryButton} onPress={() => openAddAccountModal(account)}>
-                      <FontAwesome6 name="pen-to-square" size={14} color={tokens.colors.ink} />
-                      <Text style={styles.secondaryButtonText}>Edit</Text>
-                    </Pressable>
-                    {!account.isDefault ? (
-                      <Pressable
-                        style={styles.secondaryButton}
-                        onPress={() => void handleSetDefaultAccount(account.id)}
-                        disabled={settingDefaultAccountId === account.id}
-                      >
-                        <FontAwesome6 name="star" size={14} color={tokens.colors.ink} />
-                        <Text style={styles.secondaryButtonText}>
-                          {settingDefaultAccountId === account.id ? "Saving..." : "Make default"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
+                  <View
+                    style={[
+                      styles.statusPill,
+                      account.isDefault ? styles.statusSuccess : getStatusTone(account.status),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        account.isDefault ? styles.statusTextSuccess : getStatusTextTone(account.status),
+                      ]}
+                    >
+                      {account.isDefault ? "Default" : formatStatusLabel(account.status)}
+                    </Text>
                   </View>
                 </View>
               ))
             ) : (
-              <Text style={styles.emptyState}>No payout methods on file yet.</Text>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No payout methods yet</Text>
+                <Text style={styles.emptyBody}>Add a bank account to get paid.</Text>
+              </View>
             )}
           </View>
 
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Payout requests</Text>
-            {(dashboard?.payoutWorkspace.requests.length ?? 0) > 0 ? (
-              (dashboard?.payoutWorkspace.requests ?? []).map((request) => (
-                <View key={request.id} style={styles.featureCard}>
-                  <View style={styles.featureHeader}>
-                    <View style={styles.featureCopy}>
-                      <Text style={styles.featureTitle}>
-                        {formatMoney(request.amountCents, request.currencyCode)}
-                      </Text>
-                      <Text style={styles.featureMeta}>
-                        Requested {formatDate(request.requestedAt)}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusPill, getStatusTone(request.status)]}>
-                      <Text style={styles.statusText}>{request.status}</Text>
-                    </View>
+          <View style={styles.section}>
+            <SectionHeader title="Payout requests" />
+            {dashboard.payoutWorkspace.requests.length > 0 ? (
+              dashboard.payoutWorkspace.requests.map((request) => (
+                <View key={request.id} style={styles.row}>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle}>
+                      {formatMoney(request.amountCents, request.currencyCode)}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      Requested {formatDate(request.requestedAt)}
+                      {request.destinationSummary ? ` · ${request.destinationSummary}` : ""}
+                    </Text>
                   </View>
-                  <Text style={styles.featureNote}>
-                    {request.destinationSummary || "Destination summary pending"}
-                  </Text>
+                  <View style={[styles.statusPill, getStatusTone(request.status)]}>
+                    <Text style={[styles.statusText, getStatusTextTone(request.status)]}>
+                      {formatStatusLabel(request.status)}
+                    </Text>
+                  </View>
                 </View>
               ))
             ) : (
-              <Text style={styles.emptyState}>No payout requests submitted yet.</Text>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No payout requests yet</Text>
+                <Text style={styles.emptyBody}>Request a payout once your balance clears the minimum.</Text>
+              </View>
             )}
           </View>
         </>
@@ -1024,7 +823,12 @@ export function AgentWorkbenchScreen() {
         onRequestClose={() => setAccountModalOpen(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setAccountModalOpen(false)} />
+          <Pressable
+            style={styles.modalBackdrop}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={() => setAccountModalOpen(false)}
+          />
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
@@ -1033,73 +837,73 @@ export function AgentWorkbenchScreen() {
                   {accountForm.accountId ? "Edit payout method" : "Add payout method"}
                 </Text>
                 <Pressable
-                  style={styles.modalCloseButton}
+                  style={styles.closeButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
                   onPress={() => setAccountModalOpen(false)}
                 >
                   <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                 </Pressable>
               </View>
-              <Text style={styles.modalSubtitle}>
-                Save the destination finance should use for future commission withdrawals.
-              </Text>
 
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.modalContent}
+                keyboardShouldPersistTaps="handled"
               >
-                <View style={styles.countryRow}>
-                  {(["US", "NG"] as const).map((countryCode) => {
-                    const active = accountForm.countryCode === countryCode;
-                    return (
-                      <Pressable
-                        key={countryCode}
-                        style={[styles.countryChip, active ? styles.countryChipActive : null]}
-                        onPress={() => handleAccountCountryChange(countryCode)}
-                      >
-                        <Text
-                          style={[
-                            styles.countryChipText,
-                            active ? styles.countryChipTextActive : null,
-                          ]}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Country</Text>
+                  <View style={styles.chipRow}>
+                    {(["US", "NG"] as const).map((countryCode) => {
+                      const active = accountForm.countryCode === countryCode;
+                      return (
+                        <Pressable
+                          key={countryCode}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
+                          style={[styles.chip, active ? styles.chipActive : null]}
+                          onPress={() => handleAccountCountryChange(countryCode)}
                         >
-                          {getCountryLabel(countryCode)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                            {getCountryLabel(countryCode)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
 
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Destination label</Text>
-                  <TextInput
-                    value={accountForm.destinationLabel}
-                    onChangeText={(value) =>
-                      setAccountForm((current) => ({ ...current, destinationLabel: value }))
-                    }
-                    style={styles.input}
-                    placeholder="Primary commission payout"
-                    placeholderTextColor={tokens.colors.mutedSoft}
-                  />
-                </View>
+                <AuthField
+                  label="Label"
+                  placeholder="Main account"
+                  value={accountForm.destinationLabel}
+                  onChangeText={(value) =>
+                    setAccountForm((current) => ({ ...current, destinationLabel: value }))
+                  }
+                  autoComplete="off"
+                />
 
                 {accountForm.countryCode === "NG" ? (
                   <>
                     <View style={styles.fieldGroup}>
                       <Text style={styles.fieldLabel}>Bank</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.bankRow}
-                      >
-                        {bankLookupLoading ? (
-                          <Text style={styles.helperText}>Loading banks...</Text>
-                        ) : (
-                          banks.map((bank) => {
+                      {bankLookupLoading ? (
+                        <SkeletonChips />
+                      ) : (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.railScroll}
+                          contentContainerStyle={styles.chipRail}
+                        >
+                          {banks.map((bank) => {
                             const active = accountForm.bankCode === bank.code;
                             return (
                               <Pressable
                                 key={bank.code}
-                                style={[styles.bankChip, active ? styles.bankChipActive : null]}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: active }}
+                                style={[styles.chip, active ? styles.chipActive : null]}
                                 onPress={() =>
                                   setAccountForm((current) => ({
                                     ...current,
@@ -1108,129 +912,105 @@ export function AgentWorkbenchScreen() {
                                   }))
                                 }
                               >
-                                <Text
-                                  style={[
-                                    styles.bankChipText,
-                                    active ? styles.bankChipTextActive : null,
-                                  ]}
-                                >
+                                <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
                                   {bank.name}
                                 </Text>
                               </Pressable>
                             );
-                          })
-                        )}
-                      </ScrollView>
+                          })}
+                        </ScrollView>
+                      )}
                     </View>
 
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.fieldLabel}>Account number</Text>
-                      <TextInput
-                        value={accountForm.accountNumber}
-                        onChangeText={(value) =>
-                          setAccountForm((current) => ({ ...current, accountNumber: value }))
-                        }
-                        style={styles.input}
-                        keyboardType="number-pad"
-                        placeholder="0123456789"
-                        placeholderTextColor={tokens.colors.mutedSoft}
-                      />
-                    </View>
+                    <AuthField
+                      label="Account number"
+                      placeholder="10 digits"
+                      value={accountForm.accountNumber}
+                      onChangeText={(value) =>
+                        setAccountForm((current) => ({ ...current, accountNumber: value }))
+                      }
+                      keyboardType="number-pad"
+                      autoComplete="off"
+                    />
 
-                    <Pressable
+                    <AuthButton
+                      label="Verify account"
+                      variant="secondary"
+                      loading={resolutionLoading}
                       style={styles.secondaryButton}
                       onPress={() => void handleResolveAccount()}
-                      disabled={resolutionLoading}
-                    >
-                      <FontAwesome6 name="circle-check" size={14} color={tokens.colors.ink} />
-                      <Text style={styles.secondaryButtonText}>
-                        {resolutionLoading ? "Verifying..." : "Verify account"}
-                      </Text>
-                    </Pressable>
+                    />
                   </>
                 ) : (
                   <>
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.fieldLabel}>Account holder</Text>
-                      <TextInput
-                        value={accountForm.accountHolderName}
-                        onChangeText={(value) =>
-                          setAccountForm((current) => ({ ...current, accountHolderName: value }))
-                        }
-                        style={styles.input}
-                        placeholder="BookMiz Agent"
-                        placeholderTextColor={tokens.colors.mutedSoft}
-                      />
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.fieldLabel}>Bank name</Text>
-                      <TextInput
-                        value={accountForm.bankName}
-                        onChangeText={(value) =>
-                          setAccountForm((current) => ({ ...current, bankName: value }))
-                        }
-                        style={styles.input}
-                        placeholder="Chase"
-                        placeholderTextColor={tokens.colors.mutedSoft}
-                      />
-                    </View>
-
-                    <View style={styles.twoUpRow}>
-                      <View style={[styles.fieldGroup, styles.flexField]}>
-                        <Text style={styles.fieldLabel}>Routing number</Text>
-                        <TextInput
-                          value={accountForm.routingNumber}
-                          onChangeText={(value) =>
-                            setAccountForm((current) => ({ ...current, routingNumber: value }))
-                          }
-                          style={styles.input}
-                          keyboardType="number-pad"
-                          placeholder="021000021"
-                          placeholderTextColor={tokens.colors.mutedSoft}
-                        />
-                      </View>
-                      <View style={[styles.fieldGroup, styles.flexField]}>
-                        <Text style={styles.fieldLabel}>Account number</Text>
-                        <TextInput
-                          value={accountForm.accountNumber}
-                          onChangeText={(value) =>
-                            setAccountForm((current) => ({ ...current, accountNumber: value }))
-                          }
-                          style={styles.input}
-                          keyboardType="number-pad"
-                          placeholder="000123456789"
-                          placeholderTextColor={tokens.colors.mutedSoft}
-                        />
-                      </View>
-                    </View>
+                    <AuthField
+                      label="Account holder"
+                      placeholder="Name on the account"
+                      value={accountForm.accountHolderName}
+                      onChangeText={(value) =>
+                        setAccountForm((current) => ({ ...current, accountHolderName: value }))
+                      }
+                      autoComplete="name"
+                    />
+                    <AuthField
+                      label="Bank name"
+                      placeholder="Bank"
+                      value={accountForm.bankName}
+                      onChangeText={(value) =>
+                        setAccountForm((current) => ({ ...current, bankName: value }))
+                      }
+                      autoComplete="off"
+                    />
+                    <AuthField
+                      label="Routing number"
+                      placeholder="9 digits"
+                      value={accountForm.routingNumber}
+                      onChangeText={(value) =>
+                        setAccountForm((current) => ({ ...current, routingNumber: value }))
+                      }
+                      keyboardType="number-pad"
+                      autoComplete="off"
+                    />
+                    <AuthField
+                      label="Account number"
+                      placeholder="Account number"
+                      value={accountForm.accountNumber}
+                      onChangeText={(value) =>
+                        setAccountForm((current) => ({ ...current, accountNumber: value }))
+                      }
+                      keyboardType="number-pad"
+                      autoComplete="off"
+                    />
                   </>
                 )}
 
                 {resolvedAccountName ? (
-                  <View style={styles.resolutionCard}>
-                    <FontAwesome6 name="badge-check" size={14} color={tokens.colors.success} />
-                    <Text style={styles.resolutionText}>{resolvedAccountName}</Text>
+                  <View style={styles.successBox}>
+                    <FontAwesome6 name="circle-check" size={16} color={tokens.colors.success} />
+                    <Text style={styles.successText}>{resolvedAccountName}</Text>
                   </View>
                 ) : null}
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Finance notes</Text>
+                  <Text style={styles.fieldLabel}>Note for finance (optional)</Text>
                   <TextInput
                     value={accountForm.payoutNotes}
                     onChangeText={(value) =>
                       setAccountForm((current) => ({ ...current, payoutNotes: value }))
                     }
                     style={styles.textArea}
-                    placeholder="Optional operating note for this payout destination"
-                    placeholderTextColor={tokens.colors.mutedSoft}
+                    placeholder="Anything finance should know"
+                    placeholderTextColor={tokens.colors.muted}
                     multiline
                     textAlignVertical="top"
+                    accessibilityLabel="Note for finance"
                   />
                 </View>
 
                 <Pressable
                   style={styles.toggleRow}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: accountForm.setAsDefault }}
                   onPress={() =>
                     setAccountForm((current) => ({
                       ...current,
@@ -1245,27 +1025,17 @@ export function AgentWorkbenchScreen() {
                     ]}
                   >
                     {accountForm.setAsDefault ? (
-                      <FontAwesome6 name="check" size={10} color={tokens.colors.inkDeep} />
+                      <FontAwesome6 name="check" size={12} color={tokens.colors.inkDeep} />
                     ) : null}
                   </View>
-                  <View style={styles.toggleCopy}>
-                    <Text style={styles.toggleTitle}>Set as default payout method</Text>
-                    <Text style={styles.toggleBody}>
-                      Future payout requests will use this destination first.
-                    </Text>
-                  </View>
+                  <Text style={styles.toggleTitle}>Use as default payout method</Text>
                 </Pressable>
 
-                <Pressable
-                  style={styles.primaryButton}
+                <AuthButton
+                  label="Save payout method"
+                  loading={savingAccount}
                   onPress={() => void handleSubmitAccount()}
-                  disabled={savingAccount}
-                >
-                  <FontAwesome6 name="floppy-disk" size={14} color={tokens.colors.inkDeep} />
-                  <Text style={styles.primaryButtonText}>
-                    {savingAccount ? "Saving..." : "Save payout method"}
-                  </Text>
-                </Pressable>
+                />
               </ScrollView>
             </SafeAreaView>
           </View>
@@ -1279,40 +1049,61 @@ export function AgentWorkbenchScreen() {
         onRequestClose={() => setPayoutModalOpen(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setPayoutModalOpen(false)} />
+          <Pressable
+            style={styles.modalBackdrop}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={() => setPayoutModalOpen(false)}
+          />
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Request payout</Text>
                 <Pressable
-                  style={styles.modalCloseButton}
+                  style={styles.closeButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
                   onPress={() => setPayoutModalOpen(false)}
                 >
                   <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
                 </Pressable>
               </View>
               <Text style={styles.modalSubtitle}>
-                Submit the full settled available balance to finance using one of your active payout methods.
+                Sends your full available balance to finance for review.
               </Text>
 
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.modalContent}
+                keyboardShouldPersistTaps="handled"
               >
+                <View style={styles.card}>
+                  <View style={styles.balanceRow}>
+                    <Text style={styles.balanceLabel}>Available now</Text>
+                    <Text style={styles.balanceValue}>
+                      {formatMoney(dashboard?.summary.availableCommissionCents ?? 0, activeCurrencyCode)}
+                    </Text>
+                  </View>
+                  <View style={styles.balanceRow}>
+                    <Text style={styles.balanceLabel}>Minimum payout</Text>
+                    <Text style={styles.balanceValue}>
+                      {formatMoney(dashboard?.summary.minimumPayoutCents ?? 0, activeCurrencyCode)}
+                    </Text>
+                  </View>
+                </View>
+
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Destination</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.bankRow}
-                  >
+                  <Text style={styles.fieldLabel}>Send to</Text>
+                  <View style={styles.chipWrap}>
                     {activePayoutAccounts.map((account) => {
                       const active = payoutForm.payoutAccountId === account.id;
                       return (
                         <Pressable
                           key={account.id}
-                          style={[styles.bankChip, active ? styles.bankChipActive : null]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
+                          style={[styles.chip, active ? styles.chipActive : null]}
                           onPress={() =>
                             setPayoutForm((current) => ({
                               ...current,
@@ -1320,60 +1111,36 @@ export function AgentWorkbenchScreen() {
                             }))
                           }
                         >
-                          <Text
-                            style={[
-                              styles.bankChipText,
-                              active ? styles.bankChipTextActive : null,
-                            ]}
-                          >
+                          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
                             {account.destinationLabel || account.bankName}
                           </Text>
                         </Pressable>
                       );
                     })}
-                  </ScrollView>
-                </View>
-
-                <View style={styles.metricRows}>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Available now</Text>
-                    <Text style={styles.metricValue}>
-                      {formatMoney(dashboard?.summary.availableCommissionCents ?? 0, activeCurrencyCode)}
-                    </Text>
-                  </View>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Minimum payout</Text>
-                    <Text style={styles.metricValue}>
-                      {formatMoney(dashboard?.summary.minimumPayoutCents ?? 0, activeCurrencyCode)}
-                    </Text>
                   </View>
                 </View>
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Note for finance</Text>
+                  <Text style={styles.fieldLabel}>Note for finance (optional)</Text>
                   <TextInput
                     value={payoutForm.agentNote}
                     onChangeText={(value) =>
                       setPayoutForm((current) => ({ ...current, agentNote: value }))
                     }
                     style={styles.textArea}
-                    placeholder="Optional note for payout review"
-                    placeholderTextColor={tokens.colors.mutedSoft}
+                    placeholder="Anything finance should know"
+                    placeholderTextColor={tokens.colors.muted}
                     multiline
                     textAlignVertical="top"
+                    accessibilityLabel="Note for finance"
                   />
                 </View>
 
-                <Pressable
-                  style={styles.primaryButton}
+                <AuthButton
+                  label="Submit payout request"
+                  loading={isSubmittingPayout}
                   onPress={() => void submitPayoutRequest()}
-                  disabled={isSubmittingPayout}
-                >
-                  <FontAwesome6 name="receipt" size={14} color={tokens.colors.inkDeep} />
-                  <Text style={styles.primaryButtonText}>
-                    {isSubmittingPayout ? "Submitting..." : "Submit payout request"}
-                  </Text>
-                </Pressable>
+                />
               </ScrollView>
             </SafeAreaView>
           </View>
@@ -1383,389 +1150,338 @@ export function AgentWorkbenchScreen() {
   );
 }
 
+function getStatusTextTone(status: string) {
+  switch (status) {
+    case "ACTIVE":
+    case "AVAILABLE":
+    case "PAID":
+      return styles.statusTextSuccess;
+    case "PENDING":
+    case "REQUESTED":
+    case "APPROVED":
+    case "PENDING_VERIFICATION":
+      return styles.statusTextPending;
+    case "ENDED":
+    case "REVERSED":
+    case "REJECTED":
+    case "CANCELLED":
+    case "DISABLED":
+      return styles.statusTextDanger;
+    default:
+      return null;
+  }
+}
+
+function formatStatusLabel(status: string) {
+  const lower = status.toLowerCase().replace(/_/g, " ");
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function initialsFor(value: string) {
+  const letters = value
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  return letters || "P";
+}
+
+function usePulse() {
+  const opacity = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return opacity;
+}
+
+function SkeletonRows() {
+  const opacity = usePulse();
+  return (
+    <View style={styles.section}>
+      {[0, 1, 2].map((index) => (
+        <Animated.View key={index} style={[styles.row, { opacity }]}>
+          <View style={[styles.avatar, styles.skeletonBlock]} />
+          <View style={styles.rowBody}>
+            <View style={[styles.skeletonBlock, styles.skeletonLineShort]} />
+            <View style={[styles.skeletonBlock, styles.skeletonLine]} />
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
+function SkeletonChips() {
+  const opacity = usePulse();
+  return (
+    <View style={styles.chipRow}>
+      {[0, 1, 2].map((index) => (
+        <Animated.View key={index} style={[styles.chip, styles.skeletonBlock, { opacity, width: 96 }]} />
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  bannerError: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#f5c7c4",
-    backgroundColor: "#fff2f0",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  section: {
+    gap: 12,
   },
-  bannerErrorText: {
-    flex: 1,
-    color: tokens.colors.danger,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-  bannerSuccess: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#cce7d7",
-    backgroundColor: "#edf8f1",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  bannerSuccessText: {
-    flex: 1,
-    color: tokens.colors.success,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  heroPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  heroPillText: {
-    color: "#eff5ff",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
-  heroContentWrap: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  heroSummaryCard: {
-    flex: 1,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    gap: 8,
-  },
-  heroSummaryLabel: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  heroSummaryValue: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.4,
+  railScroll: {
+    marginHorizontal: -20,
   },
   tabRow: {
-    gap: 10,
-    paddingRight: 18,
+    gap: 8,
+    paddingHorizontal: 20,
   },
   tabChip: {
+    height: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
   },
   tabChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
   },
   tabChipText: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   tabChipTextActive: {
-    color: "#fff",
+    color: "#ffffff",
   },
-  statGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  statCard: {
-    width: "47%",
-    borderRadius: 22,
+  card: {
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: tokens.colors.border,
     backgroundColor: "#ffffff",
     padding: 16,
-    gap: 8,
+    gap: 12,
   },
-  statLabel: {
-    color: tokens.colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-  statValue: {
-    color: tokens.colors.ink,
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  rowPanels: {
-    gap: 20,
-  },
-  halfPanel: {
-    flex: 1,
-  },
-  panel: {
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    padding: 20,
-    gap: 16,
-  },
-  panelHeaderRow: {
+  cardHeaderRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "flex-start",
     gap: 12,
   },
-  panelHeaderCopy: {
-    flex: 1,
-    gap: 6,
+  cardTitle: {
+    color: tokens.colors.ink,
+    fontSize: 17,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.3,
   },
-  panelEyebrow: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 2.2,
-    textTransform: "uppercase",
+  balanceHead: {
+    gap: 2,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: tokens.colors.border,
   },
-  panelTitle: {
+  balanceBig: {
     color: tokens.colors.ink,
     fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  panelSubtitle: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 21,
-  },
-  countPill: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#edf2fa",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  countPillText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  featureCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    padding: 16,
-    gap: 14,
-  },
-  featureHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  featureCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  featureTitle: {
-    color: tokens.colors.ink,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "800",
-  },
-  featureMeta: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  featureMetricGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  featureMetricCard: {
-    minWidth: "31%",
-    flex: 1,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    padding: 12,
-    gap: 6,
-  },
-  featureMetricLabel: {
-    color: tokens.colors.mutedSoft,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  featureMetricValue: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-  featureNote: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  statusPill: {
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  statusSuccess: {
-    borderColor: "#cce7d7",
-    backgroundColor: "#edf8f1",
-  },
-  statusPending: {
-    borderColor: "#f3ddb6",
-    backgroundColor: "#fff5e8",
-  },
-  statusDanger: {
-    borderColor: "#f5c7c4",
-    backgroundColor: "#fff2f0",
-  },
-  statusNeutral: {
-    borderColor: tokens.colors.border,
-    backgroundColor: "#f4f6fb",
-  },
-  statusText: {
-    color: tokens.colors.ink,
-    fontSize: 11,
-    fontWeight: "800",
+    lineHeight: 30,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
   },
   balanceRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 14,
-    paddingVertical: 13,
   },
   balanceLabel: {
     color: tokens.colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 15,
+    fontFamily: tokens.font.regular,
   },
   balanceValue: {
     color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
   },
-  defaultMethodCard: {
-    borderRadius: 24,
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    padding: 16,
-    gap: 14,
+    backgroundColor: "#ffffff",
+    padding: 14,
   },
-  defaultMethodTitle: {
-    color: tokens.colors.ink,
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  defaultMethodBody: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  metricRows: {
-    gap: 10,
-  },
-  metricRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  metricLabel: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  metricValue: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  inlineActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  primaryButton: {
-    flexDirection: "row",
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: tokens.colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.brand,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
   },
-  primaryButtonText: {
-    color: tokens.colors.inkDeep,
+  avatarText: {
+    color: tokens.colors.ink,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: tokens.font.bold,
+  },
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowEnd: {
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  rowTitle: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.bold,
+  },
+  rowMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
+  },
+  rowNote: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
+    marginTop: 2,
+  },
+  rowAmount: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
+  },
+  rowLinks: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 6,
+  },
+  linkText: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  statusPill: {
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusSuccess: {
+    backgroundColor: tokens.colors.successSoft,
+  },
+  statusPending: {
+    backgroundColor: tokens.colors.warningSoft,
+  },
+  statusDanger: {
+    backgroundColor: tokens.colors.surfaceSoft,
+  },
+  statusNeutral: {
+    backgroundColor: tokens.colors.surface,
+  },
+  statusText: {
+    color: tokens.colors.ink,
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
+  },
+  statusTextSuccess: {
+    color: tokens.colors.success,
+  },
+  statusTextPending: {
+    color: tokens.colors.warning,
+  },
+  statusTextDanger: {
+    color: tokens.colors.mutedSoft,
   },
   secondaryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: tokens.radius.pill,
+    minHeight: 48,
+  },
+  emptyCard: {
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    borderStyle: "dashed",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    alignItems: "center",
+    gap: 4,
   },
-  secondaryButtonText: {
+  emptyTitle: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 16,
+    fontFamily: tokens.font.display,
   },
-  buttonDisabled: {
-    opacity: 0.55,
-  },
-  emptyState: {
+  emptyBody: {
     color: tokens.colors.muted,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 20,
+    textAlign: "center",
+    fontFamily: tokens.font.regular,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.bold,
+  },
+  successBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.colors.successSoft,
+    padding: 14,
+  },
+  successText: {
+    flex: 1,
+    color: tokens.colors.success,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.semibold,
+  },
+  skeletonBlock: {
+    backgroundColor: tokens.colors.border,
+    borderWidth: 0,
+    borderRadius: 7,
+  },
+  skeletonLineShort: {
+    height: 14,
+    width: "55%",
+  },
+  skeletonLine: {
+    height: 12,
+    width: "90%",
   },
   modalRoot: {
     flex: 1,
@@ -1773,26 +1489,25 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(9, 18, 33, 0.42)",
+    backgroundColor: "rgba(16, 39, 72, 0.45)",
   },
   modalSheetWrap: {
-    paddingHorizontal: 10,
-    paddingBottom: 10,
+    maxHeight: "92%",
   },
   modalSheet: {
-    maxHeight: "90%",
-    borderRadius: 30,
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: tokens.colors.surface,
+    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 12,
   },
   modalHandle: {
     alignSelf: "center",
-    width: 52,
+    width: 44,
     height: 5,
-    borderRadius: 999,
-    backgroundColor: "#d5deec",
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.borderStrong,
     marginBottom: 16,
   },
   modalHeader: {
@@ -1804,177 +1519,111 @@ const styles = StyleSheet.create({
   modalTitle: {
     flex: 1,
     color: tokens.colors.ink,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: "800",
-    letterSpacing: -0.9,
+    fontSize: 22,
+    lineHeight: 26,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
   },
-  modalCloseButton: {
-    width: 42,
-    height: 42,
-    borderRadius: tokens.radius.pill,
+  modalSubtitle: {
+    marginTop: 6,
+    color: tokens.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  closeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
   },
-  modalSubtitle: {
-    marginTop: 10,
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
   modalContent: {
-    paddingTop: 18,
+    paddingTop: 16,
     paddingBottom: 24,
     gap: 16,
-  },
-  countryRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  countryChip: {
-    flex: 1,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  countryChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-  },
-  countryChipText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  countryChipTextActive: {
-    color: "#fff",
   },
   fieldGroup: {
     gap: 8,
   },
-  twoUpRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  flexField: {
-    flex: 1,
-  },
   fieldLabel: {
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
-  input: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "600",
+  chipRow: {
+    flexDirection: "row",
+    gap: 8,
   },
-  textArea: {
-    minHeight: 120,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "600",
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  bankRow: {
-    gap: 10,
-    paddingRight: 18,
+  chipRail: {
+    gap: 8,
+    paddingHorizontal: 20,
   },
-  bankChip: {
+  chip: {
+    height: 40,
+    justifyContent: "center",
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fff",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
     paddingHorizontal: 14,
-    paddingVertical: 12,
   },
-  bankChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+  chipActive: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
   },
-  bankChipText: {
+  chipText: {
     color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
-  bankChipTextActive: {
-    color: "#fff",
+  chipTextActive: {
+    color: "#ffffff",
   },
-  helperText: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  resolutionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 18,
+  textArea: {
+    minHeight: 104,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: "#cce7d7",
-    backgroundColor: "#edf8f1",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  resolutionText: {
-    color: tokens.colors.success,
-    fontSize: 13,
-    fontWeight: "800",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: tokens.colors.ink,
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
   },
   toggleRow: {
+    minHeight: 44,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: "#fbfdff",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
   },
   toggleIndicator: {
     width: 24,
     height: 24,
-    borderRadius: 999,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
   },
   toggleIndicatorActive: {
     borderColor: tokens.colors.brand,
     backgroundColor: tokens.colors.brand,
   },
-  toggleCopy: {
-    flex: 1,
-    gap: 4,
-  },
   toggleTitle: {
+    flex: 1,
     color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  toggleBody: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 15,
+    fontFamily: tokens.font.medium,
   },
 });

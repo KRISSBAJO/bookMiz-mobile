@@ -36,11 +36,16 @@ export function SignupScreen() {
 
   return (
     <AuthShell
-      eyebrow="Create account"
-      title="Create your BookMiz account"
-      subtitle="Start with discovery, saved providers, booking updates, and a much calmer mobile flow from the first tap."
+      title="Create your account"
       heroImage={require("../../../assets/bookmiz/manicure.png")}
-      brandTagline="Book beautifully"
+      footer={
+        <View style={styles.rowCenter}>
+          <Text style={styles.helper}>Already have an account? </Text>
+          <Pressable onPress={() => router.push("/login")} accessibilityRole="link">
+            <Text style={styles.link}>Log in</Text>
+          </Pressable>
+        </View>
+      }
     >
       <View style={styles.nameRow}>
         <View style={styles.nameColumn}>
@@ -62,11 +67,12 @@ export function SignupScreen() {
       </View>
 
       <AuthField
-        label="Email"
-        placeholder="email@domain.com"
+        label="Email address"
+        placeholder="you@email.com"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
+        autoComplete="email"
       />
       <AuthField
         label="Password"
@@ -74,10 +80,21 @@ export function SignupScreen() {
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="new-password"
       />
 
+      {session.authError ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {session.authError}
+          </Text>
+        </View>
+      ) : null}
+
       <AuthButton
-        label={isSubmitting ? "Creating account..." : "Sign up"}
+        label="Create account"
+        icon="arrow-right"
+        loading={isSubmitting}
         disabled={!isValid || isSubmitting}
         onPress={async () => {
           if (!isValid) {
@@ -99,17 +116,7 @@ export function SignupScreen() {
             setIsSubmitting(false);
           }
         }}
-        style={!isValid ? styles.disabledButton : undefined}
       />
-
-      <View style={styles.rowCenter}>
-        <Text style={styles.helper}>Already have an account?</Text>
-        <Pressable onPress={() => router.push("/login")}>
-          <Text style={styles.link}> Login</Text>
-        </Pressable>
-      </View>
-
-      {session.authError ? <Text style={styles.errorText}>{session.authError}</Text> : null}
     </AuthShell>
   );
 }
@@ -129,20 +136,25 @@ const styles = StyleSheet.create({
   },
   helper: {
     color: tokens.colors.muted,
-    fontSize: 13,
+    fontSize: 15,
+    fontFamily: tokens.font.regular,
   },
   link: {
-    color: tokens.colors.brandDeep,
-    fontSize: 13,
-    fontWeight: "800",
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
   },
-  disabledButton: {
-    opacity: 0.75,
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 12,
   },
   errorText: {
-    color: "#d44c3f",
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: "center",
+    color: tokens.colors.danger,
+    fontSize: 14,
+    fontFamily: tokens.font.regular,
+    lineHeight: 20,
   },
 });

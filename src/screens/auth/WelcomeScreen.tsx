@@ -1,77 +1,21 @@
 import { Redirect, useRouter } from "expo-router";
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Image,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { useState } from "react";
+import { Image, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import { AuthButton } from "@/src/components/auth/AuthButton";
-import { AuthShell } from "@/src/components/auth/AuthShell";
+import { BrandMark } from "@/src/components/auth/AuthShell";
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 
-const slides = [
-  {
-    id: "beauty",
-    title: "Find trusted beauty and care",
-    subtitle:
-      "Discover polished services, compare clearly, and book without the rushed feel of a marketplace.",
-    image: require("../../../assets/bookmiz/manicure.png"),
-    badgeLeft: "nails",
-    badgeRight: "tune",
-  },
-  {
-    id: "booking",
-    title: "Book fast and keep it elegant",
-    subtitle:
-      "From first search to final confirmation, every step is built to feel cleaner, warmer, and easier on mobile.",
-    image: require("../../../assets/bookmiz/barber.png"),
-    badgeLeft: "calendar-check",
-    badgeRight: "sparkles",
-  },
-  {
-    id: "trust",
-    title: "Come back to providers you trust",
-    subtitle:
-      "High-quality profiles, fast replies, and a calmer way to manage appointments that fit your routine.",
-    image: require("../../../assets/bookmiz/hospital.png"),
-    badgeLeft: "heart-circle-check",
-    badgeRight: "shield-heart",
-  },
-] as const;
-
 export function WelcomeScreen() {
   const router = useRouter();
   const session = useSession();
-  const scrollRef = useRef<ScrollView | null>(null);
-  const { width } = useWindowDimensions();
-  const [activeIndex, setActiveIndex] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-
-  const frameWidth = Math.max(width - 40, 280);
-  const slide = useMemo(() => slides[activeIndex], [activeIndex]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveIndex((current) => {
-        const next = (current + 1) % slides.length;
-        scrollRef.current?.scrollTo({ x: frameWidth * next, animated: true });
-        return next;
-      });
-    }, 3600);
-
-    return () => clearInterval(timer);
-  }, [frameWidth]);
 
   if (session.isHydrating) {
     return null;
@@ -81,168 +25,176 @@ export function WelcomeScreen() {
     return <Redirect href="/(tabs)" />;
   }
 
-  const onMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / frameWidth);
-    setActiveIndex(nextIndex);
-  };
-
   return (
-    <AuthShell
-      brandTagline="Book beautifully"
-      heroMedia={
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          bounces={false}
-          onMomentumScrollEnd={onMomentumEnd}
-        >
-          {slides.map((item) => (
-            <View key={item.id} style={[styles.slide, { width: frameWidth }]}>
-              <View style={styles.slideFrame}>
-                <View style={styles.badgeLeft}>
-                  <IconBadge name={item.badgeLeft} color="#7a2cf2" />
-                </View>
-                <View style={styles.badgeRight}>
-                  <IconBadge name={item.badgeRight} color="#6f5e1c" warm />
-                </View>
-                <View style={styles.slideImageWrap}>
-                  <View style={styles.slideImageShell}>
-                    <View style={styles.slideImageInset}>
-                      <Image source={item.image} style={styles.slideImage} />
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-          ))}
-        </ScrollView>
-      }
-      topAccent={
-        <View style={styles.progressRow}>
-          {slides.map((item, index) => (
-            <Pressable
-              key={item.id}
-              onPress={() => {
-                setActiveIndex(index);
-                scrollRef.current?.scrollTo({ x: frameWidth * index, animated: true });
-              }}
-              style={[
-                styles.progressDot,
-                index === activeIndex ? styles.progressDotActive : null,
-              ]}
-            />
-          ))}
+    <SafeAreaView style={styles.root}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <BrandMark size={36} />
+      </View>
+
+      <View style={styles.heroFrame}>
+        <Image source={require("../../../assets/bookmiz/barber.png")} style={styles.heroImage} />
+        <View style={styles.heroShade} />
+        <View style={styles.providerCard}>
+          <View style={styles.providerAvatar}>
+            <FontAwesome6 name="scissors" size={16} color={tokens.colors.inkDeep} />
+          </View>
+          <View style={styles.providerBody}>
+            <Text style={styles.providerName}>Barbers, nails, clinics</Text>
+            <Text style={styles.providerMeta}>Rated by real customers near you</Text>
+          </View>
+          <View style={styles.providerPill}>
+            <Text style={styles.providerPillText}>Book</Text>
+          </View>
         </View>
-      }
-      title={slide.title}
-      subtitle={slide.subtitle}
-    >
-      {session.authError ? <View style={{gap:8}}>
-        <Text accessibilityRole="alert">{retryError || session.authError}</Text>
-        <AuthButton label={retrying ? "Reconnecting…" : "Retry connection"} disabled={retrying} variant="secondary" onPress={async()=>{
-          setRetrying(true);setRetryError(null);
-          try { await session.refreshProfile(); }
-          catch(error) { setRetryError(getFriendlyApiError(error,"Could not reconnect. Please try again.")); }
-          finally { setRetrying(false); }
-        }}/>
-      </View> : null}
-      <AuthButton label="Get Started" onPress={() => router.push("/signup")} />
-      <AuthButton
-        label="Login"
-        variant="secondary"
-        onPress={() => router.push("/login")}
-      />
-    </AuthShell>
-  );
-}
+      </View>
 
-function IconBadge({
-  name,
-  color,
-  warm = false,
-}: {
-  name: React.ComponentProps<typeof FontAwesome6>["name"];
-  color: string;
-  warm?: boolean;
-}) {
-  return (
-    <View style={[styles.badgeShell, warm ? styles.badgeShellWarm : styles.badgeShellCool]}>
-      <FontAwesome6 name={name} size={16} color={color} />
-    </View>
+      <View style={styles.copy}>
+        <Text style={styles.title}>Book trusted local pros in a couple of taps.</Text>
+        <Text style={styles.subtitle}>
+          Compare, book and manage every appointment in one place.
+        </Text>
+      </View>
+
+      <View style={styles.actions}>
+        {session.authError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText} accessibilityRole="alert">
+              {retryError || session.authError}
+            </Text>
+            <AuthButton
+              label={retrying ? "Reconnecting…" : "Retry connection"}
+              variant="ghost"
+              loading={retrying}
+              onPress={async () => {
+                setRetrying(true);
+                setRetryError(null);
+                try {
+                  await session.refreshProfile();
+                } catch (error) {
+                  setRetryError(getFriendlyApiError(error, "Could not reconnect. Please try again."));
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            />
+          </View>
+        ) : null}
+        <AuthButton label="Get started" icon="arrow-right" onPress={() => router.push("/signup")} />
+        <AuthButton
+          label="I already have an account"
+          variant="ghost"
+          onPress={() => router.push("/login")}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  slide: {
-    height: 286,
-  },
-  slideFrame: {
+  root: {
     flex: 1,
-    justifyContent: "center",
+    backgroundColor: tokens.colors.inkDeep,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
   },
-  slideImageWrap: {
-    flex: 1,
-    justifyContent: "center",
+  header: {
+    paddingTop: 12,
   },
-  slideImageShell: {
-    flex: 1,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-  },
-  slideImageInset: {
-    flex: 1,
-    borderRadius: 34,
+  heroFrame: {
+    marginTop: 28,
+    height: 320,
+    borderRadius: tokens.radius.xl,
     overflow: "hidden",
+    backgroundColor: tokens.colors.navySoft,
+    justifyContent: "flex-end",
+    padding: 16,
   },
-  slideImage: {
+  heroImage: {
+    ...StyleSheet.absoluteFill,
     width: "100%",
     height: "100%",
+    resizeMode: "cover",
   },
-  badgeShell: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  heroShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 150,
+    backgroundColor: "rgba(16,39,72,0.62)",
+  },
+  providerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    padding: 12,
+  },
+  providerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: tokens.colors.brandSoft,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0d1830",
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
-  badgeShellCool: {
-    backgroundColor: "#ffffff",
+  providerBody: {
+    flex: 1,
+    gap: 2,
   },
-  badgeShellWarm: {
-    backgroundColor: "#fff6d8",
+  providerName: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.bold,
   },
-  badgeLeft: {
-    position: "absolute",
-    left: 18,
-    bottom: 18,
-    zIndex: 3,
+  providerMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
   },
-  badgeRight: {
-    position: "absolute",
-    right: 18,
-    top: 18,
-    zIndex: 3,
-  },
-  progressRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.28)",
-  },
-  progressDotActive: {
-    width: 28,
+  providerPill: {
+    borderRadius: tokens.radius.pill,
     backgroundColor: tokens.colors.brand,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  providerPillText: {
+    color: tokens.colors.inkDeep,
+    fontSize: 12,
+    fontFamily: tokens.font.bold,
+  },
+  copy: {
+    marginTop: 28,
+    gap: 10,
+  },
+  title: {
+    color: "#ffffff",
+    fontSize: 30,
+    lineHeight: 34,
+    fontFamily: tokens.font.display,
+    letterSpacing: -1,
+  },
+  subtitle: {
+    color: tokens.colors.onNavyMuted,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: tokens.font.regular,
+  },
+  actions: {
+    marginTop: "auto",
+    gap: 10,
+    paddingTop: 24,
+  },
+  errorBox: {
+    gap: 10,
+    marginBottom: 6,
+  },
+  errorText: {
+    color: "#ffd2d2",
+    fontSize: 14,
+    fontFamily: tokens.font.regular,
+    lineHeight: 20,
   },
 });

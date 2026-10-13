@@ -2,6 +2,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Modal,
   Pressable,
   SafeAreaView,
@@ -12,6 +13,8 @@ import {
   View,
 } from "react-native";
 
+import { AuthButton } from "@/src/components/auth/AuthButton";
+import { AuthField } from "@/src/components/auth/AuthField";
 import { SectionHeader } from "@/src/components/SectionHeader";
 import { Screen } from "@/src/components/Screen";
 import { ProviderCard } from "@/src/components/marketplace/ProviderCard";
@@ -751,17 +754,13 @@ export function ExploreScreen() {
   const locationLabel =
     searchData?.query.locationLabel ?? (appliedLocation.trim() || null);
 
-  const heroTitle =
-    serviceModel === "LOCAL" ? "Local services" : "Professional appointments";
-
   const heroSubtitle = searchData?.pagination.total
-    ? fallbackNote ??
-      `${searchData.pagination.total} provider${
+    ? `${searchData.pagination.total} provider${
         searchData.pagination.total === 1 ? "" : "s"
-      }${locationLabel ? ` matched around ${locationLabel}` : " live on BookMiz"}`
+      }${locationLabel ? ` near ${locationLabel}` : ""}`
     : serviceModel === "LOCAL"
-      ? "Search local beauty, grooming, wellness, and home services."
-      : "Search professional care, consults, and appointment-led services.";
+      ? "Find beauty, grooming, wellness, and home services."
+      : "Find clinics, consults, and other appointments.";
 
   const toggleBookmark = useCallback(
     async (providerId: string) => {
@@ -818,147 +817,94 @@ export function ExploreScreen() {
     setActiveCategory(undefined);
   }, []);
 
+
+  const currentSortLabel =
+    sortOptions.find((option) => option.value === sort)?.label ?? "Recommended";
+  const showSkeleton = isLoading && providers.length === 0;
+
   return (
     <Screen
-      eyebrow="Marketplace"
-      title={heroTitle}
+      title="Explore"
       subtitle={heroSubtitle}
-      heroTopContent={
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroTag}>
-            <Text style={styles.heroTagText}>
-              {serviceModel === "LOCAL" ? "Local services" : "Professional appointments"}
-            </Text>
-          </View>
-          {locationLabel ? (
-            <View style={styles.heroTag}>
-              <FontAwesome6 name="location-dot" size={12} color="#fff" />
-              <Text style={styles.heroTagText}>{locationLabel}</Text>
-            </View>
+      heroContent={
+        <View style={styles.searchShell}>
+          <FontAwesome6 name="magnifying-glass" size={16} color={tokens.colors.muted} />
+          <TextInput
+            placeholder={
+              serviceModel === "PROFESSIONAL"
+                ? "Clinics, consults, tutors…"
+                : "Haircut, nails, massage…"
+            }
+            placeholderTextColor={tokens.colors.muted}
+            style={styles.searchInput}
+            value={draftQuery}
+            onChangeText={setDraftQuery}
+            returnKeyType="search"
+            onSubmitEditing={applySearch}
+            accessibilityLabel="Search services"
+          />
+          {draftQuery ? (
+            <Pressable
+              onPress={() => {
+                setDraftQuery("");
+                setAppliedQuery("");
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              style={styles.searchClear}
+            >
+              <FontAwesome6 name="xmark" size={14} color={tokens.colors.muted} />
+            </Pressable>
           ) : null}
         </View>
       }
-      contentTopOffset={16}
-      heroBottomPadding={16}
-      heroMinHeight={220}
+      showBack={false}
+      refreshing={isLoading && providers.length > 0}
+      onRefresh={() => void fetchExplore(1, false)}
     >
-      {error ? (
-        <View style={styles.alertBanner}>
-          <FontAwesome6 name="triangle-exclamation" size={14} color="#d44c3f" />
-          <Text style={styles.alertText}>{error}</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.searchCard}>
-        <View style={styles.searchCardHeader}>
-          <View style={styles.searchCardCopy}>
-            <Text style={styles.searchCardLabel}>Marketplace search</Text>
-            <Text style={styles.searchCardNote}>Search by specialty, service, or location.</Text>
-          </View>
-          <Pressable style={styles.refineButton} onPress={() => setFiltersOpen(true)}>
-            <FontAwesome6 name="sliders" size={13} color={tokens.colors.ink} />
-            <Text style={styles.refineButtonText}>Refine</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.fieldStack}>
-          <View style={styles.searchBox}>
-            <FontAwesome6 name="magnifying-glass" size={15} color={tokens.colors.muted} />
-            <TextInput
-              placeholder={
-                serviceModel === "PROFESSIONAL"
-                  ? "Search clinics, legal consults, tutors..."
-                  : "Search treatments, barber, beauty..."
-              }
-              placeholderTextColor={tokens.colors.mutedSoft}
-              style={styles.searchInput}
-              value={draftQuery}
-              onChangeText={setDraftQuery}
-              returnKeyType="search"
-              onSubmitEditing={applySearch}
-            />
-          </View>
-
-          <View style={styles.searchActionRow}>
-            <View style={[styles.searchBox, styles.locationBox]}>
-              <FontAwesome6 name="location-dot" size={15} color={tokens.colors.muted} />
-              <TextInput
-                placeholder="City, county, state, zip, or country"
-                placeholderTextColor={tokens.colors.mutedSoft}
-                style={styles.searchInput}
-                value={draftLocation}
-                onChangeText={setDraftLocation}
-                returnKeyType="search"
-                onSubmitEditing={applySearch}
-              />
-            </View>
-            <Pressable style={styles.searchButton} onPress={applySearch}>
-              <Text style={styles.searchButtonText}>Search</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-
-      {fallbackNote ? (
-        <View style={styles.infoBanner}>
-          <FontAwesome6 name="sparkles" size={13} color={tokens.colors.ink} />
-          <Text style={styles.infoText}>{fallbackNote}</Text>
-        </View>
-      ) : null}
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.laneRail}
+        style={styles.railScroll}
+        contentContainerStyle={styles.rail}
       >
         {serviceModelOptions.map((option) => {
           const isActive = serviceModel === option.value;
           return (
             <Pressable
               key={option.value}
-              style={[styles.laneChip, isActive ? styles.laneChipActive : null]}
+              style={[styles.chip, isActive ? styles.chipActive : null]}
               onPress={() => setLane(option.value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
             >
-              <Text style={[styles.laneChipText, isActive ? styles.laneChipTextActive : null]}>
+              <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
                 {option.label}
               </Text>
             </Pressable>
           );
         })}
-      </ScrollView>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryRail}
-      >
+        <View style={styles.railDivider} />
         <Pressable
-          style={[styles.categoryChip, !activeCategory ? styles.categoryChipActive : null]}
+          style={[styles.chip, !activeCategory ? styles.chipActive : null]}
           onPress={() => setActiveCategory(undefined)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: !activeCategory }}
         >
-          <Text
-            style={[
-              styles.categoryChipText,
-              !activeCategory ? styles.categoryChipTextActive : null,
-            ]}
-          >
-            All
-          </Text>
+          <Text style={[styles.chipText, !activeCategory ? styles.chipTextActive : null]}>All</Text>
         </Pressable>
         {visibleCategories.map((category) => {
           const isActive = activeCategory === category.slug;
           return (
             <Pressable
               key={category.id}
-              style={[styles.categoryChip, isActive ? styles.categoryChipActive : null]}
+              style={[styles.chip, isActive ? styles.chipActive : null]}
               onPress={() => setActiveCategory(category.slug)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
             >
-              <Text
-                style={[
-                  styles.categoryChipText,
-                  isActive ? styles.categoryChipTextActive : null,
-                ]}
-              >
+              <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
                 {category.name}
               </Text>
             </Pressable>
@@ -966,40 +912,68 @@ export function ExploreScreen() {
         })}
       </ScrollView>
 
-      <View style={styles.sortPanel}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.sortRail}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.railScroll}
+        contentContainerStyle={styles.rail}
+      >
+        <Pressable
+          style={styles.controlChip}
+          onPress={() => setFiltersOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Change location"
         >
-          {sortOptions.map((option) => {
-            const isActive = sort === option.value;
-            return (
-              <Pressable
-                key={option.value}
-                style={[styles.sortChip, isActive ? styles.sortChipActive : null]}
-                onPress={() => setSort(option.value)}
-              >
-                <Text
-                  style={[styles.sortChipText, isActive ? styles.sortChipTextActive : null]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+          <FontAwesome6 name="location-dot" size={14} color={tokens.colors.ink} />
+          <Text style={styles.controlChipText} numberOfLines={1}>
+            {locationLabel ?? "Anywhere"}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={styles.controlChip}
+          onPress={() => setFiltersOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Change sort"
+        >
+          <FontAwesome6 name="arrow-down-wide-short" size={14} color={tokens.colors.ink} />
+          <Text style={styles.controlChipText}>{currentSortLabel}</Text>
+        </Pressable>
+        <Pressable
+          style={styles.controlChip}
+          onPress={() => setFiltersOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Open filters"
+        >
+          <FontAwesome6 name="sliders" size={14} color={tokens.colors.ink} />
+          <Text style={styles.controlChipText}>Filters</Text>
+        </Pressable>
+      </ScrollView>
 
-      {featuredProviders.length > 0 ? (
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+          <Pressable onPress={() => void fetchExplore(1, false)} accessibilityRole="button">
+            <Text style={styles.errorRetry}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {fallbackNote ? (
+        <View style={styles.noteBox}>
+          <FontAwesome6 name="circle-info" size={14} color={tokens.colors.brandDeep} />
+          <Text style={styles.noteText}>{fallbackNote}</Text>
+        </View>
+      ) : null}
+
+      {featuredProviders.length > 0 && !showSkeleton ? (
         <View style={styles.section}>
-          <SectionHeader
-            title="Featured providers"
-            subtitle="Live providers worth comparing first."
-          />
+          <SectionHeader title="Featured" />
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.railScroll}
             contentContainerStyle={styles.featuredRail}
           >
             {featuredProviders.map((provider) => (
@@ -1020,57 +994,61 @@ export function ExploreScreen() {
 
       <View style={styles.section}>
         <SectionHeader
-          title={searchData?.headline ?? "Marketplace results"}
+          title={searchData?.headline ?? "Results"}
           subtitle={
             searchData?.pagination.total
-              ? `${searchData.pagination.total} providers matched your search`
-              : "Browse the providers currently live on BookMiz."
+              ? `${searchData.pagination.total} provider${searchData.pagination.total === 1 ? "" : "s"}`
+              : undefined
           }
         />
 
-        {providers.map((provider) => (
-          <ProviderCard
-            key={provider.id}
-            provider={provider}
-            isBookmarked={bookmarkedIds.includes(provider.id)}
-            onPress={() => router.push(`/providers/${provider.slug}` as never)}
-            onToggleBookmark={
-              session.isSignedIn ? () => void toggleBookmark(provider.id) : undefined
-            }
-          />
-        ))}
+        {showSkeleton ? (
+          <SkeletonRows count={4} />
+        ) : (
+          providers.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              isBookmarked={bookmarkedIds.includes(provider.id)}
+              onPress={() => router.push(`/providers/${provider.slug}` as never)}
+              onToggleBookmark={
+                session.isSignedIn ? () => void toggleBookmark(provider.id) : undefined
+              }
+            />
+          ))
+        )}
 
         {!isLoading && providers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No providers matched this search</Text>
-            <Text style={styles.emptyCaption}>
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No providers match</Text>
+            <Text style={styles.emptyBody}>
               {serviceModel === "PROFESSIONAL"
-                ? "Try a different specialty, clear the search term, or switch to local services."
-                : "Try a different service, clear the search term, or widen the location."}
+                ? "Try another specialty, clear the search, or switch to local services."
+                : "Try another service, clear the search, or widen the location."}
             </Text>
-            <View style={styles.emptyActionRow}>
-              <Pressable
-                style={styles.secondaryButton}
+            <View style={styles.emptyActions}>
+              <AuthButton
+                label="Clear search"
+                variant="secondary"
+                style={styles.emptyButton}
                 onPress={() => {
                   setDraftQuery("");
                   setAppliedQuery("");
                   setActiveCategory(undefined);
                 }}
-              >
-                <Text style={styles.secondaryButtonText}>Clear search</Text>
-              </Pressable>
+              />
               {serviceModel === "PROFESSIONAL" ? (
-                <Pressable
-                  style={styles.primaryButton}
+                <AuthButton
+                  label="Switch to local"
+                  variant="navy"
+                  style={styles.emptyButton}
                   onPress={() => {
                     setLane("LOCAL");
                     setActiveCategory(undefined);
                     setDraftQuery("");
                     setAppliedQuery("");
                   }}
-                >
-                  <Text style={styles.primaryButtonText}>Switch to local</Text>
-                </Pressable>
+                />
               ) : null}
             </View>
           </View>
@@ -1078,63 +1056,57 @@ export function ExploreScreen() {
 
         {!isLoading && providers.length === 0 && liveCategorySuggestions.length > 0 ? (
           <View style={styles.section}>
-            <SectionHeader
-              title="Popular live categories"
-              subtitle="Real marketplace categories currently showing providers."
-            />
-            <View style={styles.liveCategoryGrid}>
-              {liveCategorySuggestions.map((category) => {
-                const providerCount =
-                  "providerCount" in category
-                    ? category.providerCount
-                    : category.stats.providerCount;
+            <SectionHeader title="Categories with providers" />
+            {liveCategorySuggestions.map((category) => {
+              const providerCount =
+                "providerCount" in category
+                  ? category.providerCount
+                  : category.stats.providerCount;
 
-                return (
-                  <Pressable
-                    key={category.id}
-                    style={styles.liveCategoryCard}
-                    onPress={() => {
-                      setLane(
-                        category.serviceModel === "PROFESSIONAL"
-                          ? "PROFESSIONAL"
-                          : "LOCAL",
-                      );
-                      setActiveCategory(category.slug);
-                      setDraftQuery("");
-                      setAppliedQuery("");
-                    }}
-                  >
-                    <Text style={styles.liveCategoryTitle}>{category.name}</Text>
-                    <Text style={styles.liveCategoryMeta}>
+              return (
+                <Pressable
+                  key={category.id}
+                  style={styles.categoryCard}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setLane(
+                      category.serviceModel === "PROFESSIONAL"
+                        ? "PROFESSIONAL"
+                        : "LOCAL",
+                    );
+                    setActiveCategory(category.slug);
+                    setDraftQuery("");
+                    setAppliedQuery("");
+                  }}
+                >
+                  <View style={styles.categoryCardBody}>
+                    <Text style={styles.categoryCardTitle} numberOfLines={1}>
+                      {category.name}
+                    </Text>
+                    <Text style={styles.categoryCardMeta} numberOfLines={2}>
                       {providerCount} provider{providerCount === 1 ? "" : "s"}
+                      {category.description ? ` · ${category.description}` : ""}
                     </Text>
-                    <Text style={styles.liveCategoryCaption}>
-                      {category.description ?? "Browse this live category in the marketplace."}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={tokens.colors.muted} />
+                </Pressable>
+              );
+            })}
           </View>
         ) : null}
 
         {canLoadMore ? (
-          <Pressable
-            style={styles.loadMoreButton}
+          <AuthButton
+            label="Load more"
+            variant="secondary"
+            loading={isLoadingMore}
+            style={styles.loadMore}
             onPress={() =>
               void fetchExplore((searchData?.pagination.page ?? 1) + 1, true)
             }
-          >
-            <Text style={styles.loadMoreButtonText}>
-              {isLoadingMore ? "Loading more..." : "Load more providers"}
-            </Text>
-          </Pressable>
+          />
         ) : null}
       </View>
-
-      {isLoading ? (
-        <Text style={styles.loadingText}>Refreshing live marketplace results…</Text>
-      ) : null}
 
       <Modal
         visible={filtersOpen}
@@ -1143,484 +1115,411 @@ export function ExploreScreen() {
         onRequestClose={() => setFiltersOpen(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setFiltersOpen(false)} />
-          <View style={styles.modalSheetWrap}>
-            <SafeAreaView style={styles.modalSheet}>
-              <View style={styles.modalHandle} />
-              <View style={styles.modalHeader}>
-                <View style={styles.modalHeaderCopy}>
-                  <Text style={styles.modalTitle}>Refine search</Text>
-                  <Text style={styles.modalSubtitle}>
-                    Update search, lane, category, and sort without leaving the feed.
-                  </Text>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setFiltersOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close filters"
+          />
+          <SafeAreaView style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filters</Text>
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setFiltersOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <AuthField
+                label="Service"
+                placeholder="Haircut, nails, massage…"
+                value={draftQuery}
+                onChangeText={setDraftQuery}
+                autoComplete="off"
+              />
+              <AuthField
+                label="Location"
+                placeholder="City, state, or zip"
+                value={draftLocation}
+                onChangeText={setDraftLocation}
+                autoComplete="off"
+                labelAccessory={
+                  session.profile?.city ? (
+                    <Pressable
+                      onPress={() => {
+                        const profileCity = session.profile?.city;
+                        if (!profileCity) {
+                          return;
+                        }
+
+                        const location = session.profile?.stateCode
+                          ? `${profileCity}, ${session.profile.stateCode}`
+                          : profileCity;
+                        setDraftLocation(location);
+                      }}
+                      accessibilityRole="button"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.fieldLink}>Use my city</Text>
+                    </Pressable>
+                  ) : null
+                }
+              />
+
+              <View style={styles.modalGroup}>
+                <Text style={styles.modalLabel}>Type</Text>
+                <View style={styles.wrapRow}>
+                  {serviceModelOptions.map((option) => {
+                    const isActive = serviceModel === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        onPress={() => setLane(option.value)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
+                      >
+                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-                <Pressable style={styles.closeButton} onPress={() => setFiltersOpen(false)}>
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
-                </Pressable>
               </View>
 
-              <ScrollView
-                style={styles.modalScroll}
-                contentContainerStyle={styles.modalContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionLabel}>Search</Text>
-                  <View style={styles.fieldStack}>
-                    <View style={styles.searchBox}>
-                      <FontAwesome6
-                        name="magnifying-glass"
-                        size={15}
-                        color={tokens.colors.muted}
-                      />
-                      <TextInput
-                        placeholder="Search barber, massage, makeup..."
-                        placeholderTextColor={tokens.colors.mutedSoft}
-                        style={styles.searchInput}
-                        value={draftQuery}
-                        onChangeText={setDraftQuery}
-                        returnKeyType="search"
-                        onSubmitEditing={applyAndCloseFilters}
-                      />
-                    </View>
-                    <View style={styles.searchBox}>
-                      <FontAwesome6 name="location-dot" size={15} color={tokens.colors.muted} />
-                      <TextInput
-                        placeholder="City, county, state, zip, or country"
-                        placeholderTextColor={tokens.colors.mutedSoft}
-                        style={styles.searchInput}
-                        value={draftLocation}
-                        onChangeText={setDraftLocation}
-                        returnKeyType="search"
-                        onSubmitEditing={applyAndCloseFilters}
-                      />
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionLabel}>Marketplace lane</Text>
-                  <View style={styles.segmentRow}>
-                    {serviceModelOptions.map((option) => {
-                      const isActive = serviceModel === option.value;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          style={[
-                            styles.segmentCard,
-                            isActive ? styles.segmentCardActive : null,
-                          ]}
-                          onPress={() => setLane(option.value)}
-                        >
-                          <Text
-                            style={[
-                              styles.segmentTitle,
-                              isActive ? styles.segmentTitleActive : null,
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionLabel}>Category</Text>
-                  <View style={styles.filterWrap}>
-                    <Pressable
-                      style={[
-                        styles.filterChip,
-                        !activeCategory ? styles.filterChipActive : null,
-                      ]}
-                      onPress={() => setActiveCategory(undefined)}
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          !activeCategory ? styles.filterChipTextActive : null,
-                        ]}
-                      >
-                        All categories
-                      </Text>
-                    </Pressable>
-                    {visibleCategories.map((category) => {
-                      const isActive = activeCategory === category.slug;
-                      return (
-                        <Pressable
-                          key={category.id}
-                          style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
-                          onPress={() => setActiveCategory(category.slug)}
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              isActive ? styles.filterChipTextActive : null,
-                            ]}
-                          >
-                            {category.name}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionLabel}>Sort by</Text>
-                  <View style={styles.filterWrap}>
-                    {sortOptions.map((option) => {
-                      const isActive = sort === option.value;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
-                          onPress={() => setSort(option.value)}
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              isActive ? styles.filterChipTextActive : null,
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.modalFooter}>
-                  <View style={styles.buttonRow}>
-                    <Pressable style={styles.secondaryButton} onPress={resetFilters}>
-                      <Text style={styles.secondaryButtonText}>Reset</Text>
-                    </Pressable>
-                    {session.profile?.city ? (
+              <View style={styles.modalGroup}>
+                <Text style={styles.modalLabel}>Category</Text>
+                <View style={styles.wrapRow}>
+                  <Pressable
+                    style={[styles.chip, !activeCategory ? styles.chipActive : null]}
+                    onPress={() => setActiveCategory(undefined)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: !activeCategory }}
+                  >
+                    <Text style={[styles.chipText, !activeCategory ? styles.chipTextActive : null]}>
+                      All
+                    </Text>
+                  </Pressable>
+                  {visibleCategories.map((category) => {
+                    const isActive = activeCategory === category.slug;
+                    return (
                       <Pressable
-                        style={styles.secondaryButton}
-                        onPress={() => {
-                          const profileCity = session.profile?.city;
-                          if (!profileCity) {
-                            return;
-                          }
-
-                          const location = session.profile?.stateCode
-                            ? `${profileCity}, ${session.profile.stateCode}`
-                            : profileCity;
-                          setDraftLocation(location);
-                        }}
+                        key={category.id}
+                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        onPress={() => setActiveCategory(category.slug)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
                       >
-                        <Text style={styles.secondaryButtonText}>Use profile city</Text>
+                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                          {category.name}
+                        </Text>
                       </Pressable>
-                    ) : null}
-                    <Pressable style={styles.primaryButton} onPress={applyAndCloseFilters}>
-                      <Text style={styles.primaryButtonText}>Apply filters</Text>
-                    </Pressable>
-                  </View>
+                    );
+                  })}
                 </View>
-              </ScrollView>
-            </SafeAreaView>
-          </View>
+              </View>
+
+              <View style={styles.modalGroup}>
+                <Text style={styles.modalLabel}>Sort</Text>
+                <View style={styles.wrapRow}>
+                  {sortOptions.map((option) => {
+                    const isActive = sort === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        onPress={() => setSort(option.value)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
+                      >
+                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <AuthButton
+                label="Reset"
+                variant="secondary"
+                style={styles.modalReset}
+                onPress={resetFilters}
+              />
+              <AuthButton label="Show results" style={styles.modalApply} onPress={applyAndCloseFilters} />
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
     </Screen>
   );
 }
 
+function SkeletonRows({ count }: { count: number }) {
+  const opacity = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <View style={styles.skeletonList} accessibilityLabel="Loading providers">
+      {Array.from({ length: count }).map((_, index) => (
+        <Animated.View key={index} style={[styles.skeletonCard, { opacity }]}>
+          <View style={styles.skeletonImage} />
+          <View style={styles.skeletonBody}>
+            <View style={[styles.skeletonLine, styles.skeletonLineWide]} />
+            <View style={styles.skeletonLine} />
+            <View style={[styles.skeletonLine, styles.skeletonLineShort]} />
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  heroTopRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  heroTag: {
+  searchShell: {
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  heroTagText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-  },
-  alertBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#fff4f2",
-    borderWidth: 1,
-    borderColor: "#f1c7c2",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  alertText: {
-    flex: 1,
-    color: "#b23a2f",
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  infoBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#eef6d8",
-    borderWidth: 1,
-    borderColor: "#d7e6ab",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  infoText: {
-    flex: 1,
-    color: tokens.colors.ink,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  searchCard: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-    gap: 14,
-  },
-  searchCardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
     gap: 12,
-  },
-  searchCardCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  searchCardLabel: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-  },
-  searchCardNote: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  refineButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  refineButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  fieldStack: {
-    gap: 10,
-  },
-  searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
   },
   searchInput: {
     flex: 1,
+    height: 50,
     color: tokens.colors.ink,
-    fontSize: 15,
+    fontSize: 16,
+    fontFamily: tokens.font.regular,
   },
-  searchActionRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  locationBox: {
-    flex: 1,
-  },
-  searchButton: {
-    minWidth: 108,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.brand,
+  searchClear: {
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
-    paddingVertical: 14,
   },
-  searchButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
+  railScroll: {
+    marginHorizontal: -20,
   },
-  laneRail: {
-    gap: 10,
-    paddingRight: 10,
+  rail: {
+    paddingHorizontal: 20,
+    gap: 8,
+    alignItems: "center",
   },
-  laneChip: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: "#ecf0f6",
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+  railDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: tokens.colors.borderStrong,
+    marginHorizontal: 4,
   },
-  laneChipActive: {
-    backgroundColor: "#e6f4be",
-  },
-  laneChipText: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  laneChipTextActive: {
-    color: tokens.colors.ink,
-  },
-  categoryRail: {
-    gap: 10,
-    paddingRight: 12,
-  },
-  categoryChip: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  categoryChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-  },
-  categoryChipText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  categoryChipTextActive: {
-    color: "#fff",
-  },
-  sortPanel: {
-    marginTop: -2,
-  },
-  sortRail: {
-    gap: 10,
-    paddingRight: 12,
-  },
-  sortChip: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
+  chip: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
   },
-  sortChipActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
+  chipActive: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
   },
-  sortChipText: {
+  chipText: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  chipTextActive: {
+    color: "#ffffff",
+  },
+  controlChip: {
+    height: 40,
+    maxWidth: 200,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: tokens.colors.surfaceSoft,
+  },
+  controlChipText: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  errorBox: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: "#f3c4c4",
+    backgroundColor: tokens.colors.dangerSoft,
+    padding: 14,
+    gap: 6,
+  },
+  errorText: {
+    color: tokens.colors.danger,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: tokens.font.regular,
+  },
+  errorRetry: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
+  },
+  noteBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    backgroundColor: tokens.colors.brandSoft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  noteText: {
+    flex: 1,
     color: tokens.colors.ink,
     fontSize: 13,
-    fontWeight: "700",
-  },
-  sortChipTextActive: {
-    color: "#fff",
+    lineHeight: 19,
+    fontFamily: tokens.font.regular,
   },
   section: {
-    gap: 14,
+    gap: 12,
   },
   featuredRail: {
-    gap: 14,
-    paddingRight: 12,
+    paddingHorizontal: 20,
+    gap: 12,
   },
   featuredCardWrap: {
-    width: 308,
+    width: 300,
   },
-  emptyState: {
-    gap: 12,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
+  emptyCard: {
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 18,
+    borderStyle: "dashed",
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    alignItems: "center",
+    gap: 6,
   },
   emptyTitle: {
     color: tokens.colors.ink,
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: -0.4,
+    fontSize: 16,
+    fontFamily: tokens.font.display,
   },
-  emptyCaption: {
+  emptyBody: {
     color: tokens.colors.muted,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 20,
+    textAlign: "center",
+    fontFamily: tokens.font.regular,
   },
-  emptyActionRow: {
+  emptyActions: {
     flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+    alignSelf: "stretch",
   },
-  liveCategoryGrid: {
+  emptyButton: {
+    flex: 1,
+    minHeight: 48,
+  },
+  categoryCard: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-  },
-  liveCategoryCard: {
-    gap: 6,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    padding: 16,
   },
-  liveCategoryTitle: {
+  categoryCardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  categoryCardTitle: {
     color: tokens.colors.ink,
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: tokens.font.display,
   },
-  liveCategoryMeta: {
-    color: tokens.colors.brandDeep,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  liveCategoryCaption: {
+  categoryCardMeta: {
     color: tokens.colors.muted,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 18,
+    fontFamily: tokens.font.regular,
   },
-  loadMoreButton: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.panel,
+  loadMore: {
+    minHeight: 48,
+  },
+  skeletonList: {
+    gap: 12,
+  },
+  skeletonCard: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
-    alignItems: "center",
+  },
+  skeletonImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonBody: {
+    flex: 1,
     justifyContent: "center",
-    paddingVertical: 14,
+    gap: 8,
   },
-  loadMoreButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
+  skeletonLine: {
+    height: 12,
+    width: "70%",
+    borderRadius: 6,
+    backgroundColor: tokens.colors.border,
   },
-  loadingText: {
-    color: tokens.colors.muted,
-    fontSize: 13,
-    textAlign: "center",
+  skeletonLineWide: {
+    width: "90%",
+  },
+  skeletonLineShort: {
+    width: "45%",
   },
   modalRoot: {
     flex: 1,
@@ -1628,170 +1527,87 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(12,29,54,0.42)",
-  },
-  modalSheetWrap: {
-    justifyContent: "flex-end",
+    backgroundColor: "rgba(16,39,72,0.45)",
   },
   modalSheet: {
-    height: "82%",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingTop: 12,
+    maxHeight: "85%",
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    backgroundColor: tokens.colors.surface,
+    paddingTop: 10,
   },
   modalHandle: {
     alignSelf: "center",
-    width: 52,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: "#cfd8e6",
+    width: 40,
+    height: 4,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.colors.borderStrong,
   },
   modalHeader: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  modalHeaderCopy: {
-    flex: 1,
-    gap: 6,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
   modalTitle: {
     color: tokens.colors.ink,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  modalSubtitle: {
-    color: tokens.colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 22,
+    fontFamily: tokens.font.display,
+    letterSpacing: -0.4,
   },
   closeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: tokens.colors.panel,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: tokens.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
   modalScroll: {
-    flex: 1,
+    flexGrow: 0,
   },
   modalContent: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
-    gap: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    gap: 18,
   },
-  modalSection: {
-    gap: 12,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
+  fieldLink: {
+    color: tokens.colors.inkDeep,
+    fontSize: 13,
+    fontFamily: tokens.font.semibold,
   },
-  modalSectionLabel: {
-    color: tokens.colors.gold,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-  },
-  modalFooter: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.panel,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  modalGroup: {
     gap: 10,
   },
-  primaryButton: {
-    flexGrow: 1,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.brand,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryButtonText: {
+  modalLabel: {
     color: tokens.colors.ink,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: tokens.font.semibold,
   },
-  secondaryButton: {
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    color: tokens.colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  segmentRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  segmentCard: {
-    flex: 1,
-    borderRadius: tokens.radius.md,
-    backgroundColor: tokens.colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 14,
-    gap: 6,
-  },
-  segmentCardActive: {
-    backgroundColor: tokens.colors.ink,
-    borderColor: tokens.colors.ink,
-  },
-  segmentTitle: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  segmentTitleActive: {
-    color: "#fff",
-  },
-  filterWrap: {
+  wrapRow: {
     flexDirection: "row",
     flexWrap: "wrap",
+    gap: 8,
+  },
+  modalFooter: {
+    flexDirection: "row",
     gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+    backgroundColor: tokens.colors.surface,
   },
-  filterChip: {
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  modalReset: {
+    flex: 1,
   },
-  filterChipActive: {
-    backgroundColor: tokens.colors.brand,
-    borderColor: tokens.colors.brand,
-  },
-  filterChipText: {
-    color: tokens.colors.ink,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  filterChipTextActive: {
-    color: tokens.colors.ink,
+  modalApply: {
+    flex: 2,
   },
 });
