@@ -186,6 +186,10 @@ export function NativeBookingScreen() {
     return groups.filter(group => group.slots.length > 0);
   }, [slots]);
 
+  // One period shown at a time; follows the first period that has times when the day changes.
+  const [period, setPeriod] = useState<string | null>(null);
+  const activeGroup = slotGroups.find(group => group.label === period) ?? slotGroups[0] ?? null;
+
   async function book() {
     if (!session.user || !profile || !service || !selected || busy || createdId) return;
     const missing = service.intakeFields.find(field => field.required && (field.type === 'BOOLEAN' ? typeof intake[String(field.id)] !== 'boolean' : Array.isArray(intake[String(field.id)]) ? !(intake[String(field.id)] as string[]).length : !String(intake[String(field.id)] ?? '').trim()));
@@ -445,39 +449,59 @@ export function NativeBookingScreen() {
               })}
             </ScrollView>
 
-            <Text style={styles.dayHint}>Times are shown in your timezone.</Text>
-
             {busy ? (
-              <View style={styles.chipWrap}>
-                {[0, 1, 2, 3, 4, 5].map(index => (
-                  <View key={index} style={[styles.chip, styles.chipSkeleton, { opacity: 0.8 - index * 0.1 }]} />
+              <View style={styles.timeGrid}>
+                {[0, 1, 2, 3, 4, 5, 6, 7].map(index => (
+                  <View key={index} style={[styles.timeCell, styles.timeCellSkeleton, { opacity: 0.9 - index * 0.08 }]} />
                 ))}
               </View>
-            ) : slotGroups.length > 0 ? (
-              slotGroups.map(group => (
-                <View key={group.label} style={styles.slotGroup}>
-                  <Text style={styles.slotGroupLabel}>{group.label}</Text>
-                  <View style={styles.chipWrap}>
-                    {group.slots.map(slot => {
-                      const isSelected = selected?.startAt === slot.startAt;
-                      return (
-                        <Pressable
-                          key={slot.startAt}
-                          style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isSelected }}
-                          accessibilityLabel={new Date(slot.startAt).toLocaleString()}
-                          onPress={() => setSelected(slot)}
-                        >
-                          <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>
-                            {formatSlotTime(slot.startAt)}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+            ) : slotGroups.length > 0 && activeGroup ? (
+              <>
+                <View style={styles.periodRow}>
+                  {slotGroups.map(group => {
+                    const isActive = group.label === activeGroup.label;
+                    return (
+                      <Pressable
+                        key={group.label}
+                        onPress={() => setPeriod(group.label)}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: isActive }}
+                        style={[styles.periodTab, isActive ? styles.periodTabActive : null]}
+                      >
+                        <Text style={[styles.periodTabText, isActive ? styles.periodTabTextActive : null]}>
+                          {group.label}
+                        </Text>
+                        <Text style={[styles.periodTabCount, isActive ? styles.periodTabTextActive : null]}>
+                          {group.slots.length}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-              ))
+
+                <View style={styles.timeGrid}>
+                  {activeGroup.slots.map(slot => {
+                    const isSelected = selected?.startAt === slot.startAt;
+                    return (
+                      <Pressable
+                        key={slot.startAt}
+                        style={[styles.timeCell, isSelected ? styles.timeCellSelected : null]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        accessibilityLabel={new Date(slot.startAt).toLocaleString()}
+                        onPress={() => setSelected(slot)}
+                      >
+                        <Text style={[styles.timeCellText, isSelected ? styles.timeCellTextSelected : null]}>
+                          {formatSlotTime(slot.startAt).replace(/\s?(AM|PM)$/i, "")}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.dayHint}>
+                  {activeGroup.label === "Morning" ? "AM" : "PM"} · shown in your timezone
+                </Text>
+              </>
             ) : slotsLoaded ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>Nothing open on this day</Text>
@@ -486,9 +510,15 @@ export function NativeBookingScreen() {
             ) : null}
 
             {selected ? (
-              <Text style={styles.selectedLine}>
-                {formatSlotDate(selected.startAt)} at {formatSlotTime(selected.startAt)}
-              </Text>
+              <View style={styles.selectedCard}>
+                <View style={styles.selectedIcon}>
+                  <FontAwesome6 name="check" size={14} color={tokens.colors.inkDeep} />
+                </View>
+                <View style={styles.selectedBody}>
+                  <Text style={styles.selectedTitle}>{formatSlotTime(selected.startAt)}</Text>
+                  <Text style={styles.selectedMeta}>{formatSlotDate(selected.startAt)}</Text>
+                </View>
+              </View>
             ) : null}
           </View>
         ) : step === "confirm" && service ? (
@@ -783,16 +813,103 @@ const styles = StyleSheet.create({
   },
   dayHint: {
     color: tokens.colors.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: tokens.font.regular,
+    textAlign: "center",
   },
-  slotGroup: {
+  periodRow: {
+    flexDirection: "row",
+    gap: 2,
+    padding: 3,
+    borderRadius: 12,
+    backgroundColor: "#e6ebf3",
+  },
+  periodTab: {
+    flex: 1,
+    height: 36,
+    borderRadius: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  periodTabActive: {
+    backgroundColor: "#ffffff",
+  },
+  periodTabText: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.semibold,
+  },
+  periodTabCount: {
+    color: tokens.colors.mutedSoft,
+    fontSize: 12,
+    fontFamily: tokens.font.medium,
+  },
+  periodTabTextActive: {
+    color: tokens.colors.ink,
+  },
+  timeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
-  slotGroupLabel: {
+  timeCell: {
+    width: "23.5%",
+    flexGrow: 1,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  timeCellSelected: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
+  },
+  timeCellSkeleton: {
+    borderColor: tokens.colors.border,
+    backgroundColor: tokens.colors.border,
+  },
+  timeCellText: {
     color: tokens.colors.ink,
     fontSize: 14,
     fontFamily: tokens.font.semibold,
+  },
+  timeCellTextSelected: {
+    color: "#ffffff",
+  },
+  selectedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: tokens.colors.brandSoft,
+  },
+  selectedIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: tokens.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectedBody: {
+    flex: 1,
+    gap: 1,
+  },
+  selectedTitle: {
+    color: tokens.colors.ink,
+    fontSize: 15,
+    fontFamily: tokens.font.semibold,
+  },
+  selectedMeta: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
   },
   selectedLine: {
     color: tokens.colors.ink,
