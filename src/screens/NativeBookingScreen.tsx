@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { FontAwesome6 } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthButton } from "@/src/components/auth/AuthButton";
 import { AuthField } from "@/src/components/auth/AuthField";
 import { Screen } from "@/src/components/Screen";
 import { getMarketplaceProvider } from "@/src/lib/api/marketplace";
-import { createCustomerBooking, getPublicBookingAvailability } from "@/src/lib/api/bookings";
+import {
+  createCustomerBooking,
+  getPublicBookingAvailability,
+  getPublicBookingAvailabilityMonth,
+} from "@/src/lib/api/bookings";
 import type { MarketplaceProviderProfile, PublicAvailabilitySlot } from "@/src/lib/api/types";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import { useSession } from "@/src/store/session-context";
@@ -39,6 +43,32 @@ function formatSlotDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
+/** "YYYY-MM-DD" for a date, shifting by `offset` days, with no timezone drift. */
+function shiftDateKey(key: string, offset: number) {
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + offset));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function dateKeyParts(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return {
+    weekday: date.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" }),
+    day: date.getUTCDate(),
+    month: date.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }),
+  };
+}
+
+const DAY_STRIP_LENGTH = 21;
+
+function slotPeriod(value: string): "Morning" | "Afternoon" | "Evening" {
+  const hour = new Date(value).getHours();
+  if (hour < 12) return "Morning";
+  if (hour < 17) return "Afternoon";
+  return "Evening";
+}
+
 export function NativeBookingScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
@@ -57,6 +87,10 @@ export function NativeBookingScreen() {
   const [intake, setIntake] = useState<Record<string, string | string[] | boolean>>({});
   const [stepIndex, setStepIndex] = useState(0);
   const [slotsLoaded, setSlotsLoaded] = useState(false);
+  // Slot counts per day for the strip, from the month availability endpoint.
+  const [dayCounts, setDayCounts] = useState<Record<string, number>>({});
+  const [dayCountsLoaded, setDayCountsLoaded] = useState(false);
+  const [todayKey, setTodayKey] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     let active = true;
@@ -65,6 +99,7 @@ export function NativeBookingScreen() {
       setProfile(value);
       const parts = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: value.provider.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
       setDate(`${parts.year}-${parts.month}-${parts.day}`);
+      setTodayKey(`${parts.year}-${parts.month}-${parts.day}`);
       const first = value.services.groups.flatMap(group => group.services)[0] || value.services.suggested[0];
       if (first) setServiceId(first.id);
     }).catch(reason => { if (active) setError(getFriendlyApiError(reason, "Could not load this business.")); })
@@ -91,7 +126,6 @@ export function NativeBookingScreen() {
 
   async function loadSlots() {
     if (!profile || !serviceId) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) { setError("Enter a date as YYYY-MM-DD."); return; }
     setBusy(true); setError(null); setSelected(null);
     try {
       const result = await getPublicBookingAvailability({ providerId: profile.provider.id, serviceId, date: date + "T00:00:00.000Z" });
@@ -100,6 +134,57 @@ export function NativeBookingScreen() {
     } catch (reason) { setError(getFriendlyApiError(reason, "Could not load appointment times.")); }
     finally { setBusy(false); }
   }
+
+  const dayStrip = useMemo(
+    () => Array.from({ length: DAY_STRIP_LENGTH }, (_, index) => shiftDateKey(todayKey, index)),
+    [todayKey],
+  );
+
+  // Day counts for the strip: this month and next, fetched once per service.
+  useEffect(() => {
+    if (step !== "time" || !profile || !serviceId) return;
+    let active = true;
+    setDayCountsLoaded(false);
+    const months = [todayKey, shiftDateKey(todayKey, DAY_STRIP_LENGTH)]
+      .map(key => `${key.slice(0, 7)}-01T12:00:00.000Z`)
+      .filter((value, index, all) => all.indexOf(value) === index);
+    Promise.all(
+      months.map(month => getPublicBookingAvailabilityMonth({ providerId: profile.provider.id, serviceId, month })),
+    )
+      .then(results => {
+        if (!active) return;
+        const counts: Record<string, number> = {};
+        results.forEach(result => result.days.forEach(day => { counts[day.date.slice(0, 10)] = day.slotCount; }));
+        setDayCounts(counts);
+        // If today has nothing, jump to the first day that does.
+        if (!counts[date]) {
+          const firstOpen = dayStrip.find(key => counts[key] > 0);
+          if (firstOpen) setDate(firstOpen);
+        }
+      })
+      .catch(() => { if (active) setDayCounts({}); })
+      .finally(() => { if (active) setDayCountsLoaded(true); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, profile?.provider.id, serviceId, todayKey]);
+
+  // Slots load as soon as a day is picked; no separate "find times" step.
+  useEffect(() => {
+    if (step !== "time" || !profile || !serviceId) return;
+    setSlots([]); setSelected(null); setSlotsLoaded(false);
+    void loadSlots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, date, serviceId, profile?.provider.id]);
+
+  const slotGroups = useMemo(() => {
+    const groups: Array<{ label: string; slots: PublicAvailabilitySlot[] }> = [
+      { label: "Morning", slots: [] },
+      { label: "Afternoon", slots: [] },
+      { label: "Evening", slots: [] },
+    ];
+    slots.forEach(slot => groups.find(group => group.label === slotPeriod(slot.startAt))?.slots.push(slot));
+    return groups.filter(group => group.slots.length > 0);
+  }, [slots]);
 
   async function book() {
     if (!session.user || !profile || !service || !selected || busy || createdId) return;
@@ -325,56 +410,78 @@ export function NativeBookingScreen() {
           </View>
         ) : step === "time" ? (
           <View style={styles.form}>
-            <View style={styles.dateRow}>
-              <View style={styles.dateField}>
-                <AuthField
-                  label="Date"
-                  placeholder="YYYY-MM-DD"
-                  value={date}
-                  onChangeText={value => { setDate(value); setSlots([]); setSelected(null); setSlotsLoaded(false); }}
-                  helperText="Dates follow the business timezone. Times show in yours."
-                />
-              </View>
-              <AuthButton
-                label={busy ? "" : "Find times"}
-                variant="navy"
-                loading={busy}
-                disabled={busy || !serviceId}
-                style={styles.dateButton}
-                onPress={() => void loadSlots()}
-              />
-            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.dayStripScroll}
+              contentContainerStyle={styles.dayStrip}
+            >
+              {dayStrip.map(key => {
+                const parts = dateKeyParts(key);
+                const isSelected = key === date;
+                const closed = dayCountsLoaded && !dayCounts[key];
+                const showMonth = key.endsWith("-01") || key === dayStrip[0];
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => setDate(key)}
+                    disabled={closed}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected, disabled: closed }}
+                    accessibilityLabel={`${parts.weekday} ${parts.day} ${parts.month}${closed ? ", no open times" : ""}`}
+                    style={[styles.dayChip, isSelected ? styles.dayChipSelected : null, closed ? styles.dayChipClosed : null]}
+                  >
+                    <Text style={[styles.dayChipWeekday, isSelected ? styles.dayChipTextSelected : null]}>
+                      {key === todayKey ? "Today" : parts.weekday}
+                    </Text>
+                    <Text style={[styles.dayChipDay, isSelected ? styles.dayChipTextSelected : null, closed ? styles.dayChipTextClosed : null]}>
+                      {parts.day}
+                    </Text>
+                    <Text style={[styles.dayChipMonth, isSelected ? styles.dayChipTextSelected : null]}>
+                      {showMonth ? parts.month : dayCounts[key] ? `${dayCounts[key]} open` : " "}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={styles.dayHint}>Times are shown in your timezone.</Text>
 
             {busy ? (
               <View style={styles.chipWrap}>
-                {[0, 1, 2, 3, 4].map(index => (
-                  <View key={index} style={[styles.chip, styles.chipSkeleton, { opacity: 0.8 - index * 0.12 }]} />
+                {[0, 1, 2, 3, 4, 5].map(index => (
+                  <View key={index} style={[styles.chip, styles.chipSkeleton, { opacity: 0.8 - index * 0.1 }]} />
                 ))}
               </View>
-            ) : slots.length > 0 ? (
-              <View style={styles.chipWrap}>
-                {slots.map(slot => {
-                  const isSelected = selected?.startAt === slot.startAt;
-                  return (
-                    <Pressable
-                      key={slot.startAt}
-                      style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: isSelected }}
-                      accessibilityLabel={new Date(slot.startAt).toLocaleString()}
-                      onPress={() => setSelected(slot)}
-                    >
-                      <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>
-                        {formatSlotTime(slot.startAt)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+            ) : slotGroups.length > 0 ? (
+              slotGroups.map(group => (
+                <View key={group.label} style={styles.slotGroup}>
+                  <Text style={styles.slotGroupLabel}>{group.label}</Text>
+                  <View style={styles.chipWrap}>
+                    {group.slots.map(slot => {
+                      const isSelected = selected?.startAt === slot.startAt;
+                      return (
+                        <Pressable
+                          key={slot.startAt}
+                          style={[styles.chip, isSelected ? styles.chipSelected : null]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected }}
+                          accessibilityLabel={new Date(slot.startAt).toLocaleString()}
+                          onPress={() => setSelected(slot)}
+                        >
+                          <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>
+                            {formatSlotTime(slot.startAt)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))
             ) : slotsLoaded ? (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No open times</Text>
-                <Text style={styles.emptyBody}>Try another date.</Text>
+                <Text style={styles.emptyTitle}>Nothing open on this day</Text>
+                <Text style={styles.emptyBody}>Pick another day above.</Text>
               </View>
             ) : null}
 
@@ -626,18 +733,66 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontFamily: tokens.font.regular,
   },
-  dateRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+  dayStripScroll: {
+    marginHorizontal: -20,
   },
-  dateField: {
-    flex: 1,
+  dayStrip: {
+    paddingHorizontal: 20,
+    gap: 8,
   },
-  dateButton: {
-    marginTop: 26,
-    minHeight: 52,
-    paddingHorizontal: 16,
+  dayChip: {
+    width: 64,
+    height: 76,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: tokens.colors.borderStrong,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  dayChipSelected: {
+    backgroundColor: tokens.colors.inkDeep,
+    borderColor: tokens.colors.inkDeep,
+  },
+  dayChipClosed: {
+    backgroundColor: tokens.colors.surface,
+    borderColor: tokens.colors.border,
+  },
+  dayChipWeekday: {
+    color: tokens.colors.muted,
+    fontSize: 11,
+    fontFamily: tokens.font.semibold,
+  },
+  dayChipDay: {
+    color: tokens.colors.ink,
+    fontSize: 20,
+    lineHeight: 24,
+    fontFamily: tokens.font.display,
+  },
+  dayChipMonth: {
+    color: tokens.colors.success,
+    fontSize: 10,
+    fontFamily: tokens.font.semibold,
+  },
+  dayChipTextSelected: {
+    color: "#ffffff",
+  },
+  dayChipTextClosed: {
+    color: tokens.colors.mutedSoft,
+  },
+  dayHint: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  slotGroup: {
+    gap: 8,
+  },
+  slotGroupLabel: {
+    color: tokens.colors.ink,
+    fontSize: 14,
+    fontFamily: tokens.font.semibold,
   },
   selectedLine: {
     color: tokens.colors.ink,
