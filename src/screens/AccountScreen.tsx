@@ -133,9 +133,9 @@ export function AccountScreen() {
     [firstName, lastName],
   );
 
-  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
+  const fullName = [profile?.firstName ?? user?.firstName, profile?.lastName ?? user?.lastName].filter(Boolean).join(" ");
   const email = profile?.email ?? user?.email ?? "";
-  const locationLabel = [city, stateCode].filter(Boolean).join(", ");
+  const locationLabel = [profile?.city ?? user?.city, profile?.stateCode ?? user?.stateCode].filter(Boolean).join(", ");
   const enabledNotifications = notificationLabels.filter(
     (item) => notificationState?.[item.key],
   ).length;
@@ -176,26 +176,28 @@ export function AccountScreen() {
         </View>
       ) : null}
 
-      <View style={styles.group}>
-        <SettingsRow
-          icon="user-large"
-          label="Profile"
-          value={phone || undefined}
-          onPress={() => setIsEditingProfile((current) => !current)}
-        />
-        <SettingsRow
-          icon="location-dot"
-          label="City"
-          value={locationLabel || "Add"}
-          onPress={() => setIsEditingProfile((current) => !current)}
-        />
-        <SettingsRow
-          icon="bell"
-          label="Notifications"
-          value={notificationState ? `${enabledNotifications} on` : undefined}
-          onPress={() => setIsEditingNotifications((current) => !current)}
-          last
-        />
+      <View style={styles.profileSection}>
+        <Text style={styles.editorTitle} accessibilityRole="header">Profile details</Text>
+        {[
+          { label: "Full name", value: fullName || "Add your name" },
+          { label: "Email", value: email || "Not provided" },
+          { label: "Phone", value: profile?.phone || "Add a phone number" },
+          { label: "Location", value: locationLabel || "Add your city" },
+        ].map((item) => (
+          <View key={item.label} style={styles.profileDetail}>
+            <Text style={styles.detailLabel}>{item.label}</Text>
+            <Text selectable style={styles.detailValue}>{item.value}</Text>
+          </View>
+        ))}
+        {!isEditingProfile ? (
+          <AuthButton
+            label="Edit profile"
+            icon="pen-to-square"
+            variant="secondary"
+            style={styles.editProfileButton}
+            onPress={() => setIsEditingProfile(true)}
+          />
+        ) : null}
       </View>
 
       {isEditingProfile ? (
@@ -305,6 +307,16 @@ export function AccountScreen() {
         </View>
       ) : null}
 
+      <View style={styles.group}>
+        <SettingsRow
+          icon="bell"
+          label="Notifications"
+          value={notificationState ? `${enabledNotifications} on` : undefined}
+          onPress={() => setIsEditingNotifications((current) => !current)}
+          last
+        />
+      </View>
+
       {isEditingNotifications ? (
         <View style={styles.editor}>
           <Text style={styles.editorTitle}>Notifications</Text>
@@ -404,6 +416,32 @@ export function AccountScreen() {
 }
 
 const styles = StyleSheet.create({
+  profileSection: {
+    gap: 16,
+    paddingVertical: 4,
+  },
+  profileDetail: {
+    gap: 4,
+  },
+  detailLabel: {
+    color: tokens.colors.muted,
+    fontSize: 13,
+    fontFamily: tokens.font.regular,
+  },
+  detailValue: {
+    color: tokens.colors.ink,
+    fontSize: 16,
+    lineHeight: 23,
+    fontFamily: tokens.font.medium,
+    flexShrink: 1,
+  },
+  editProfileButton: {
+    alignSelf: "flex-start",
+    minHeight: 48,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.colors.brandSoft,
+    borderColor: tokens.colors.brandDeep,
+  },
   identity: {
     flexDirection: "row",
     alignItems: "center",
