@@ -73,6 +73,7 @@ export function NativeBookingScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
   const session = useSession();
+  const canBook = session.user?.userType === "CUSTOMER";
   const [profile, setProfile] = useState<MarketplaceProviderProfile | null>(null);
   const [serviceId, setServiceId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -191,7 +192,7 @@ export function NativeBookingScreen() {
   const activeGroup = slotGroups.find(group => group.label === period) ?? slotGroups[0] ?? null;
 
   async function book() {
-    if (!session.user || !profile || !service || !selected || busy || createdId) return;
+    if (!session.user || !canBook || !profile || !service || !selected || busy || createdId) return;
     const missing = service.intakeFields.find(field => field.required && (field.type === 'BOOLEAN' ? typeof intake[String(field.id)] !== 'boolean' : Array.isArray(intake[String(field.id)]) ? !(intake[String(field.id)] as string[]).length : !String(intake[String(field.id)] ?? '').trim()));
     if (missing) { setError(`Answer "${String(missing.label)}" before booking.`); return; }
     setBusy(true); setError(null);
@@ -222,7 +223,7 @@ export function NativeBookingScreen() {
     true;
 
   const title = profile?.provider.displayName || "Book";
-  const inFlow = session.isSignedIn && !createdId && !loading;
+  const inFlow = session.isSignedIn && canBook && !createdId && !loading;
 
   return (
     <View style={styles.root}>
@@ -257,6 +258,19 @@ export function NativeBookingScreen() {
             <Text style={styles.emptyTitle}>Sign in to book</Text>
             <Text style={styles.emptyBody}>Your appointment is saved to your account.</Text>
             <AuthButton label="Sign in" style={styles.emptyAction} onPress={() => router.push("/login")} />
+          </View>
+        ) : !canBook ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Use a customer account to book</Text>
+            <Text style={styles.emptyBody}>
+              You are signed in with a staff or admin account. Switching to customer mode changes the view, but does not change your account permissions.
+            </Text>
+            <AuthButton
+              label="Sign out and use a customer account"
+              variant="secondary"
+              style={styles.emptyAction}
+              onPress={async () => { await session.signOut(); router.replace("/login"); }}
+            />
           </View>
         ) : createdId ? (
           <View style={styles.doneCard}>
@@ -302,6 +316,23 @@ export function NativeBookingScreen() {
                 </Pressable>
               );
             })}
+            <View style={styles.form}>
+              <Text style={styles.fieldLabel}>Can’t find the service you need?</Text>
+              <Text style={styles.caption}>
+                Describe what you need and request quotes from nearby providers. A quote request does not reserve an appointment or charge your card.
+              </Text>
+              <AuthButton
+                label="Request a service quote"
+                variant="secondary"
+                onPress={() => {
+                  session.switchPersona("customer");
+                  router.push({ pathname: "/(tabs)/workbench", params: {
+                    service: "Custom service",
+                    description: `I couldn’t find the service I need on ${profile?.provider.displayName || "this business"}’s menu. I’m looking for: `,
+                  } });
+                }}
+              />
+            </View>
             {serviceChoices.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No services to book</Text>

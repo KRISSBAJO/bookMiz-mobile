@@ -5,6 +5,7 @@ export type PersonaMode = "customer" | "agent";
 export type BookMizUser = {
   id: string;
   email: string;
+  userType: string;
   firstName: string;
   lastName: string;
   city?: string | null;

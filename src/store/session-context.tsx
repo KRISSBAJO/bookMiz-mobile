@@ -77,6 +77,7 @@ function buildSessionUser(
     | {
         id: string;
         email: string;
+        userType: string;
         firstName: string;
         lastName: string;
         roles: string[];
@@ -91,6 +92,7 @@ function buildSessionUser(
   return {
     id: user.id,
     email: user.email,
+    userType: user.userType,
     firstName: profile?.firstName ?? user.firstName,
     lastName: profile?.lastName ?? user.lastName,
     city: profile?.city ?? null,

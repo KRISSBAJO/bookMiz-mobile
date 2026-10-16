@@ -166,6 +166,11 @@ export function AccountScreen() {
           <Text style={styles.personaCaption}>
             Switch between the customer app and your agent desk.
           </Text>
+          {user?.userType !== "CUSTOMER" ? (
+            <Text style={styles.personaCaption}>
+              Customer mode lets you browse. To book for yourself, sign in with a customer account.
+            </Text>
+          ) : null}
           <View style={styles.personaSwitcherWrap}>
             <PersonaSwitcher
               activePersona={session.activePersona}

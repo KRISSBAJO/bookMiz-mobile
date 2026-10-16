@@ -219,16 +219,17 @@ function getInitials(value: string) {
 
 export function WorkbenchScreen() {
   const session = useSession();
+  return session.activePersona === "agent" ? <AgentWorkbenchScreen /> : <CustomerWorkbenchScreen />;
+}
+
+function CustomerWorkbenchScreen() {
+  const session = useSession();
   const params = useLocalSearchParams<{
     service?: string;
     city?: string;
     provider?: string;
     description?: string;
   }>();
-
-  if (session.activePersona === "agent") {
-    return <AgentWorkbenchScreen />;
-  }
 
   const [templates, setTemplates] = useState<MarketplaceRequestTemplate[]>([]);
   const [requests, setRequests] = useState<CustomerQuoteRequest[]>([]);
