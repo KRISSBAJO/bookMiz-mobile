@@ -9,11 +9,57 @@ import type {
 } from "@/src/lib/api/types";
 
 const bookingsUrl = `${mobileEnv.bookingApiUrl}/bookings`;
+export function uploadBookingDocument(
+  bookingId: string,
+  payload: {
+    uploadToken: string;
+    fileName: string;
+    mimeType: string;
+    contentBase64: string;
+    label?: string;
+  },
+) {
+  return requestJson(
+    `${bookingsUrl}/${encodeURIComponent(bookingId)}/documents`,
+    {
+      method: "POST",
+      auth: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+}
 
-export type CreatedMobileBooking = { id: string; payment?: { method?: string; authorizationUrl?: string; message?: string } | null };
+export type CreatedMobileBooking = {
+  id: string;
+  payment?: {
+    method?: string;
+    authorizationUrl?: string;
+    message?: string;
+  } | null;
+};
 
-export function createCustomerBooking(payload: { providerId: string; serviceId: string; startsAt: string; firstName: string; lastName?: string; email?: string; phone?: string; assignedStaffId?: string; locationId?: string; channel?: string; notes?: string; intakeResponses?: Array<Record<string, unknown>>; requestedDocumentLabels?: string[] }) {
-  return requestJson<CreatedMobileBooking>(`${bookingsUrl}/customer`, { method: "POST", auth: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+export function createCustomerBooking(payload: {
+  providerId: string;
+  serviceId: string;
+  startsAt: string;
+  firstName: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  assignedStaffId?: string;
+  locationId?: string;
+  channel?: string;
+  notes?: string;
+  intakeResponses?: Array<Record<string, unknown>>;
+  requestedDocumentLabels?: string[];
+}) {
+  return requestJson<CreatedMobileBooking>(`${bookingsUrl}/customer`, {
+    method: "POST",
+    auth: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 function buildQuery(params: Record<string, string | number | undefined>) {
@@ -37,14 +83,20 @@ export function listCustomerBookings() {
 }
 
 export function getCustomerBooking(bookingId: string) {
-  return requestJson<CustomerBookingRecord>(`${bookingsUrl}/customer/${bookingId}`, {
-    method: "GET",
-    auth: true,
-  });
+  return requestJson<CustomerBookingRecord>(
+    `${bookingsUrl}/customer/${bookingId}`,
+    {
+      method: "GET",
+      auth: true,
+    },
+  );
 }
 
 export function resumeCustomerPayment(bookingId: string) {
-  return requestJson<CreatedMobileBooking["payment"]>(`${bookingsUrl}/customer/${bookingId}/payments/resume`, { method: "POST", auth: true });
+  return requestJson<CreatedMobileBooking["payment"]>(
+    `${bookingsUrl}/customer/${bookingId}/payments/resume`,
+    { method: "POST", auth: true },
+  );
 }
 
 export function getPublicBookingAvailability(params: {
@@ -82,14 +134,17 @@ export function getPublicBookingAvailabilityMonth(params: {
 }
 
 export function cancelCustomerBooking(bookingId: string, reason?: string) {
-  return requestJson<MessageResponseData>(`${bookingsUrl}/${bookingId}/cancel`, {
-    method: "PATCH",
-    auth: true,
-    headers: {
-      "Content-Type": "application/json",
+  return requestJson<MessageResponseData>(
+    `${bookingsUrl}/${bookingId}/cancel`,
+    {
+      method: "PATCH",
+      auth: true,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason }),
     },
-    body: JSON.stringify({ reason }),
-  }).then(() => getCustomerBooking(bookingId));
+  ).then(() => getCustomerBooking(bookingId));
 }
 
 export function rescheduleCustomerBooking(

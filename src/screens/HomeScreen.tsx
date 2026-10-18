@@ -42,9 +42,24 @@ import { tokens } from "@/src/theme/tokens";
 
 type IconName = React.ComponentProps<typeof FontAwesome6>["name"];
 
-const quickActions: Array<{ id: string; label: string; icon: IconName; route: string }> = [
-  { id: "book", label: "Book", icon: "calendar-plus", route: "/(tabs)/explore" },
-  { id: "quote", label: "Get quote", icon: "comment-dollar", route: "/(tabs)/workbench" },
+const quickActions: Array<{
+  id: string;
+  label: string;
+  icon: IconName;
+  route: string;
+}> = [
+  {
+    id: "book",
+    label: "Book",
+    icon: "calendar-plus",
+    route: "/(tabs)/explore",
+  },
+  {
+    id: "quote",
+    label: "Get quote",
+    icon: "comment-dollar",
+    route: "/(tabs)/workbench",
+  },
   { id: "bookings", label: "Bookings", icon: "clock", route: "/appointments" },
   { id: "saved", label: "Saved", icon: "heart", route: "/saved-providers" },
 ];
@@ -60,17 +75,31 @@ function formatRelativeDay(value: string) {
   const start = new Date(value);
   const now = new Date();
   const dayMs = 86_400_000;
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startDay = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate(),
+  ).getTime();
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
   const diff = Math.round((startDay - today) / dayMs);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff > 1 && diff < 7) return `In ${diff} days`;
-  return start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return start.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatRequestStatus(status: CustomerQuoteRequest["status"]) {
@@ -88,7 +117,11 @@ function formatRequestStatus(status: CustomerQuoteRequest["status"]) {
   }
 }
 
-function initialsFor(firstName?: string | null, lastName?: string | null, email?: string) {
+function initialsFor(
+  firstName?: string | null,
+  lastName?: string | null,
+  email?: string,
+) {
   const letters = `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase();
   return letters || (email ?? "B").slice(0, 2).toUpperCase();
 }
@@ -96,8 +129,12 @@ function initialsFor(firstName?: string | null, lastName?: string | null, email?
 export function HomeScreen() {
   const router = useRouter();
   const session = useSession();
-  const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>([]);
-  const [featuredProviders, setFeaturedProviders] = useState<MarketplaceProviderCard[]>([]);
+  const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>(
+    [],
+  );
+  const [featuredProviders, setFeaturedProviders] = useState<
+    MarketplaceProviderCard[]
+  >([]);
   const [bookmarks, setBookmarks] = useState<MarketplaceProviderCard[]>([]);
   const [requests, setRequests] = useState<CustomerQuoteRequest[]>([]);
   const [bookings, setBookings] = useState<CustomerBookingRecord[]>([]);
@@ -114,21 +151,30 @@ export function HomeScreen() {
       setError(null);
       setIsLoading(true);
 
-      const [nextCategories, marketplace, nextRequests, nextBookmarks, nextBookings] =
-        await Promise.all([
-          listCategoryDiscovery("LOCAL"),
-          searchProviders({
-            serviceModel: "LOCAL",
-            sort: "recommended",
-            pageSize: 6,
-          }),
-          listCustomerQuoteRequests({
-            requesterUserId: session.user.id,
-            requesterEmail: session.user.email,
-          }),
-          listCustomerBookmarkedProviders().catch(() => []),
-          listCustomerBookings().catch(() => []),
-        ]);
+      const [
+        nextCategories,
+        marketplace,
+        nextRequests,
+        nextBookmarks,
+        nextBookings,
+      ] = await Promise.all([
+        listCategoryDiscovery("LOCAL"),
+        searchProviders({
+          serviceModel: "LOCAL",
+          sort: "recommended",
+          pageSize: 6,
+        }),
+        listCustomerQuoteRequests({
+          requesterUserId: session.user.id,
+          requesterEmail: session.user.email,
+        }),
+        session.user.userType === "CUSTOMER"
+          ? listCustomerBookmarkedProviders()
+          : Promise.resolve([]),
+        session.user.userType === "CUSTOMER"
+          ? listCustomerBookings()
+          : Promise.resolve([]),
+      ]);
 
       setCategories(nextCategories);
       setFeaturedProviders(
@@ -140,7 +186,12 @@ export function HomeScreen() {
       setBookmarks(nextBookmarks);
       setBookings(nextBookings);
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not load your home feed right now."));
+      setError(
+        getFriendlyApiError(
+          nextError,
+          "We could not load your home feed right now.",
+        ),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -169,11 +220,17 @@ export function HomeScreen() {
           booking.status !== "COMPLETED" &&
           new Date(booking.endsAt).getTime() >= now,
       )
-      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0];
+      .sort(
+        (a, b) =>
+          new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+      )[0];
   }, [bookings]);
 
   const activeRequests = useMemo(
-    () => requests.filter((request) => request.status === "OPEN" || request.status === "MATCHED"),
+    () =>
+      requests.filter(
+        (request) => request.status === "OPEN" || request.status === "MATCHED",
+      ),
     [requests],
   );
 
@@ -219,7 +276,11 @@ export function HomeScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={isLoading} onRefresh={() => void loadHomeData()} tintColor={tokens.colors.inkDeep} />
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={() => void loadHomeData()}
+              tintColor={tokens.colors.inkDeep}
+            />
           }
         >
           <View style={styles.topRow}>
@@ -230,11 +291,17 @@ export function HomeScreen() {
               style={styles.avatar}
             >
               <Text style={styles.avatarText}>
-                {initialsFor(session.user?.firstName, session.user?.lastName, session.user?.email)}
+                {initialsFor(
+                  session.user?.firstName,
+                  session.user?.lastName,
+                  session.user?.email,
+                )}
               </Text>
             </Pressable>
             <View style={styles.greeting}>
-              <Text style={styles.greetingSmall}>{greetingFor(new Date())}</Text>
+              <Text style={styles.greetingSmall}>
+                {greetingFor(new Date())}
+              </Text>
               <Text style={styles.greetingName} numberOfLines={1}>
                 {firstName}
               </Text>
@@ -245,7 +312,11 @@ export function HomeScreen() {
                 accessibilityRole="button"
                 style={styles.cityChip}
               >
-                <FontAwesome6 name="location-dot" size={12} color={tokens.colors.ink} />
+                <FontAwesome6
+                  name="location-dot"
+                  size={12}
+                  color={tokens.colors.ink}
+                />
                 <Text style={styles.cityChipText} numberOfLines={1}>
                   {city}
                 </Text>
@@ -262,7 +333,11 @@ export function HomeScreen() {
           </View>
 
           <View style={styles.searchShell}>
-            <FontAwesome6 name="magnifying-glass" size={16} color={tokens.colors.muted} />
+            <FontAwesome6
+              name="magnifying-glass"
+              size={16}
+              color={tokens.colors.muted}
+            />
             <TextInput
               value={searchTerm}
               onChangeText={setSearchTerm}
@@ -277,27 +352,37 @@ export function HomeScreen() {
 
           {nextBooking ? (
             <Pressable
-              onPress={() => router.push(`/appointments/${nextBooking.id}` as never)}
+              onPress={() =>
+                router.push(`/appointments/${nextBooking.id}` as never)
+              }
               accessibilityRole="button"
               style={styles.nextCard}
             >
               <View style={styles.nextHeader}>
                 <Text style={styles.nextEyebrow}>Next appointment</Text>
-                <Text style={styles.nextWhen}>{formatRelativeDay(nextBooking.startsAt)}</Text>
+                <Text style={styles.nextWhen}>
+                  {formatRelativeDay(nextBooking.startsAt)}
+                </Text>
               </View>
               <View style={styles.nextRow}>
                 <View style={styles.nextDate}>
                   <Text style={styles.nextDateDay}>
-                    {new Date(nextBooking.startsAt).toLocaleDateString(undefined, { weekday: "short" })}
+                    {new Date(nextBooking.startsAt).toLocaleDateString(
+                      undefined,
+                      { weekday: "short" },
+                    )}
                   </Text>
-                  <Text style={styles.nextDateNum}>{new Date(nextBooking.startsAt).getDate()}</Text>
+                  <Text style={styles.nextDateNum}>
+                    {new Date(nextBooking.startsAt).getDate()}
+                  </Text>
                 </View>
                 <View style={styles.nextBody}>
                   <Text style={styles.nextTitle} numberOfLines={1}>
                     {nextBooking.service.name}
                   </Text>
                   <Text style={styles.nextMeta} numberOfLines={1}>
-                    {nextBooking.provider.displayName} · {formatTime(nextBooking.startsAt)}
+                    {nextBooking.provider.displayName} ·{" "}
+                    {formatTime(nextBooking.startsAt)}
                     {nextBooking.assignedStaff
                       ? ` · ${nextBooking.assignedStaff.displayName ?? nextBooking.assignedStaff.firstName}`
                       : ""}
@@ -307,7 +392,9 @@ export function HomeScreen() {
               </View>
               <View style={styles.nextActions}>
                 <Pressable
-                  onPress={() => router.push(`/appointments/${nextBooking.id}` as never)}
+                  onPress={() =>
+                    router.push(`/appointments/${nextBooking.id}` as never)
+                  }
                   style={styles.nextPrimary}
                   accessibilityRole="button"
                 >
@@ -333,7 +420,11 @@ export function HomeScreen() {
                 style={styles.action}
               >
                 <View style={styles.actionIcon}>
-                  <FontAwesome6 name={action.icon} size={20} color={tokens.colors.inkDeep} />
+                  <FontAwesome6
+                    name={action.icon}
+                    size={20}
+                    color={tokens.colors.inkDeep}
+                  />
                 </View>
                 <Text style={styles.actionLabel}>{action.label}</Text>
               </Pressable>
@@ -342,7 +433,11 @@ export function HomeScreen() {
 
           {categories.length > 0 ? (
             <View style={styles.section}>
-              <SectionHeader title="Browse" actionLabel="See all" onAction={() => openExplore({ serviceModel: "LOCAL" })} />
+              <SectionHeader
+                title="Browse"
+                actionLabel="See all"
+                onAction={() => openExplore({ serviceModel: "LOCAL" })}
+              />
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -355,14 +450,19 @@ export function HomeScreen() {
                     onPress={() =>
                       openExplore({
                         categorySlug: category.slug,
-                        serviceModel: category.serviceModel === "PROFESSIONAL" ? "PROFESSIONAL" : "LOCAL",
+                        serviceModel:
+                          category.serviceModel === "PROFESSIONAL"
+                            ? "PROFESSIONAL"
+                            : "LOCAL",
                       })
                     }
                     accessibilityRole="button"
                     style={styles.chip}
                   >
                     <Text style={styles.chipText}>{category.name}</Text>
-                    <Text style={styles.chipCount}>{category.stats.providerCount}</Text>
+                    <Text style={styles.chipCount}>
+                      {category.stats.providerCount}
+                    </Text>
                   </Pressable>
                 ))}
               </ScrollView>
@@ -374,14 +474,23 @@ export function HomeScreen() {
               title={bookmarks.length > 0 ? "Saved" : "Near you"}
               actionLabel={bookmarks.length > 0 ? "See all" : "Explore"}
               onAction={() =>
-                bookmarks.length > 0 ? router.push("/saved-providers") : openExplore({ serviceModel: "LOCAL" })
+                bookmarks.length > 0
+                  ? router.push("/saved-providers")
+                  : openExplore({ serviceModel: "LOCAL" })
               }
             />
 
             {lead ? (
-              <Pressable onPress={() => openProvider(lead.slug)} accessibilityRole="button" style={styles.leadCard}>
+              <Pressable
+                onPress={() => openProvider(lead.slug)}
+                accessibilityRole="button"
+                style={styles.leadCard}
+              >
                 <View style={styles.leadImageWrap}>
-                  <Image source={getProviderHeroImage(lead)} style={styles.leadImage} />
+                  <Image
+                    source={getProviderHeroImage(lead)}
+                    style={styles.leadImage}
+                  />
                   {lead.badges.onlineBooking ? (
                     <View style={styles.leadBadge}>
                       <Text style={styles.leadBadgeText}>Books online</Text>
@@ -394,24 +503,39 @@ export function HomeScreen() {
                       {lead.displayName}
                     </Text>
                     <Text style={styles.leadRating}>
-                      {lead.averageRating ? `★ ${lead.averageRating.toFixed(1)}` : "New"}
-                      {lead.reviewCount > 0 ? <Text style={styles.leadRatingCount}> ({lead.reviewCount})</Text> : null}
+                      {lead.averageRating
+                        ? `★ ${lead.averageRating.toFixed(1)}`
+                        : "New"}
+                      {lead.reviewCount > 0 ? (
+                        <Text style={styles.leadRatingCount}>
+                          {" "}
+                          ({lead.reviewCount})
+                        </Text>
+                      ) : null}
                     </Text>
                   </View>
                   <Text style={styles.leadMeta} numberOfLines={1}>
-                    {[lead.businessCategory, getMarketplaceLocationLabel(lead.primaryLocation), formatMarketplaceDistance(lead.distanceMiles)]
+                    {[
+                      lead.businessCategory,
+                      getMarketplaceLocationLabel(lead.primaryLocation),
+                      formatMarketplaceDistance(lead.distanceMiles),
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </Text>
                   {lead.topServices.length > 0 ? (
                     <View style={styles.servicePills}>
-                      {lead.topServices.filter((service) => service.priceCents > 0).slice(0, 2).map((service) => (
-                        <View key={service.id} style={styles.servicePill}>
-                          <Text style={styles.servicePillText}>
-                            {service.name} {formatMarketplacePrice(service.priceCents)}
-                          </Text>
-                        </View>
-                      ))}
+                      {lead.topServices
+                        .filter((service) => service.priceCents > 0)
+                        .slice(0, 2)
+                        .map((service) => (
+                          <View key={service.id} style={styles.servicePill}>
+                            <Text style={styles.servicePillText}>
+                              {service.name}{" "}
+                              {formatMarketplacePrice(service.priceCents)}
+                            </Text>
+                          </View>
+                        ))}
                     </View>
                   ) : null}
                 </View>
@@ -419,7 +543,9 @@ export function HomeScreen() {
             ) : !isLoading ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No providers nearby yet</Text>
-                <Text style={styles.emptyBody}>Search for a service or set your city in Account.</Text>
+                <Text style={styles.emptyBody}>
+                  Search for a service or set your city in Account.
+                </Text>
               </View>
             ) : null}
 
@@ -430,18 +556,27 @@ export function HomeScreen() {
                 accessibilityRole="button"
                 style={styles.rowCard}
               >
-                <Image source={getProviderHeroImage(provider)} style={styles.rowImage} />
+                <Image
+                  source={getProviderHeroImage(provider)}
+                  style={styles.rowImage}
+                />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTitleRow}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {provider.displayName}
                     </Text>
                     <Text style={styles.rowRating}>
-                      {provider.averageRating ? `★ ${provider.averageRating.toFixed(1)}` : "New"}
+                      {provider.averageRating
+                        ? `★ ${provider.averageRating.toFixed(1)}`
+                        : "New"}
                     </Text>
                   </View>
                   <Text style={styles.rowMeta} numberOfLines={1}>
-                    {[provider.businessCategory, getMarketplaceLocationLabel(provider.primaryLocation), formatMarketplaceDistance(provider.distanceMiles)]
+                    {[
+                      provider.businessCategory,
+                      getMarketplaceLocationLabel(provider.primaryLocation),
+                      formatMarketplaceDistance(provider.distanceMiles),
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </Text>
@@ -472,13 +607,28 @@ export function HomeScreen() {
                       {request.requestedServiceName}
                     </Text>
                     <Text style={styles.requestMeta} numberOfLines={1}>
-                      {request.matches.length} {request.matches.length === 1 ? "reply" : "replies"} ·{" "}
+                      {request.matches.length}{" "}
+                      {request.matches.length === 1 ? "reply" : "replies"} ·{" "}
                       {request.city}
                       {request.stateCode ? `, ${request.stateCode}` : ""}
                     </Text>
                   </View>
-                  <View style={[styles.statusPill, request.status === "MATCHED" ? styles.statusPillMatched : null]}>
-                    <Text style={[styles.statusText, request.status === "MATCHED" ? styles.statusTextMatched : null]}>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      request.status === "MATCHED"
+                        ? styles.statusPillMatched
+                        : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        request.status === "MATCHED"
+                          ? styles.statusTextMatched
+                          : null,
+                      ]}
+                    >
                       {formatRequestStatus(request.status)}
                     </Text>
                   </View>
@@ -492,7 +642,10 @@ export function HomeScreen() {
               <Text style={styles.errorText} accessibilityRole="alert">
                 {error}
               </Text>
-              <Pressable onPress={() => void loadHomeData()} accessibilityRole="button">
+              <Pressable
+                onPress={() => void loadHomeData()}
+                accessibilityRole="button"
+              >
                 <Text style={styles.errorRetry}>Try again</Text>
               </Pressable>
             </View>

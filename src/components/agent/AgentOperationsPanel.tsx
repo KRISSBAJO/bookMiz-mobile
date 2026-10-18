@@ -48,7 +48,6 @@ function formatMoney(value?: number | null, currencyCode = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currencyCode,
-    maximumFractionDigits: 0,
   }).format(value / 100);
 }
 
@@ -133,8 +132,15 @@ function formatStatusLabel(status: string) {
 function StatusPill({ status }: { status: string }) {
   const matched = status === "MATCHED";
   return (
-    <View style={[styles.statusPill, matched ? styles.statusMatched : statusTone(status)]}>
-      <Text style={[styles.statusText, statusTextTone(status)]}>{formatStatusLabel(status)}</Text>
+    <View
+      style={[
+        styles.statusPill,
+        matched ? styles.statusMatched : statusTone(status),
+      ]}
+    >
+      <Text style={[styles.statusText, statusTextTone(status)]}>
+        {formatStatusLabel(status)}
+      </Text>
     </View>
   );
 }
@@ -145,8 +151,16 @@ function SkeletonCards({ count = 3 }: { count?: number }) {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -171,7 +185,8 @@ export function AgentOperationsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilterId>("ALL");
-  const [serviceModelFilter, setServiceModelFilter] = useState<ServiceModelFilterId>("ALL");
+  const [serviceModelFilter, setServiceModelFilter] =
+    useState<ServiceModelFilterId>("ALL");
   const [searchDraft, setSearchDraft] = useState("");
   const [stateDraft, setStateDraft] = useState("");
   const [countryDraft, setCountryDraft] = useState("US");
@@ -179,50 +194,89 @@ export function AgentOperationsPanel() {
   const [submittedState, setSubmittedState] = useState("");
   const [submittedCountry, setSubmittedCountry] = useState("US");
   const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<AgentOperationsRequestDetail | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
+    null,
+  );
+  const [detail, setDetail] = useState<AgentOperationsRequestDetail | null>(
+    null,
+  );
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [page, setPage] = useState(1);
+  const queueGeneration = useRef(0);
+  const detailGeneration = useRef(0);
+  useEffect(() => {
+    setPage(1);
+  }, [
+    serviceModelFilter,
+    statusFilter,
+    submittedCountry,
+    submittedSearch,
+    submittedState,
+  ]);
   const loadQueue = useCallback(async () => {
+    const generation = ++queueGeneration.current;
     try {
       setIsLoading(true);
       setError(null);
 
       const nextQueue = await getAgentOperationsRequests({
         status: statusFilter === "ALL" ? undefined : statusFilter,
-        serviceModel: serviceModelFilter === "ALL" ? undefined : serviceModelFilter,
+        serviceModel:
+          serviceModelFilter === "ALL" ? undefined : serviceModelFilter,
         search: submittedSearch || undefined,
         stateCode: submittedState || undefined,
         countryCode: submittedCountry || undefined,
-        page: 1,
+        page,
         pageSize: 20,
       });
 
-      setQueue(nextQueue);
+      if (generation === queueGeneration.current) setQueue(nextQueue);
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not load the operations queue."));
+      if (generation === queueGeneration.current)
+        setError(
+          getFriendlyApiError(
+            nextError,
+            "We could not load the operations queue.",
+          ),
+        );
     } finally {
-      setIsLoading(false);
+      if (generation === queueGeneration.current) setIsLoading(false);
     }
-  }, [serviceModelFilter, statusFilter, submittedCountry, submittedSearch, submittedState]);
+  }, [
+    page,
+    serviceModelFilter,
+    statusFilter,
+    submittedCountry,
+    submittedSearch,
+    submittedState,
+  ]);
 
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
 
   const openDetail = useCallback(async (quoteRequestId: string) => {
+    const generation = ++detailGeneration.current;
     try {
       setSelectedRequestId(quoteRequestId);
       setDetailOpen(true);
       setDetailLoading(true);
       setDetail(null);
       const nextDetail = await getAgentOperationsRequestDetail(quoteRequestId);
-      setDetail(nextDetail);
+      if (generation === detailGeneration.current) setDetail(nextDetail);
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not load that request detail."));
-      setDetailOpen(false);
+      if (generation === detailGeneration.current) {
+        setError(
+          getFriendlyApiError(
+            nextError,
+            "We could not load that request detail.",
+          ),
+        );
+        setDetailOpen(false);
+      }
     } finally {
-      setDetailLoading(false);
+      if (generation === detailGeneration.current) setDetailLoading(false);
     }
   }, []);
 
@@ -238,7 +292,10 @@ export function AgentOperationsPanel() {
           <Text style={styles.errorText} accessibilityRole="alert">
             {error}
           </Text>
-          <Pressable onPress={() => void loadQueue()} accessibilityRole="button">
+          <Pressable
+            onPress={() => void loadQueue()}
+            accessibilityRole="button"
+          >
             <Text style={styles.errorRetry}>Try again</Text>
           </Pressable>
         </View>
@@ -250,7 +307,12 @@ export function AgentOperationsPanel() {
             { label: "Open", value: queue?.summary.openCount ?? 0 },
             { label: "Matched", value: queue?.summary.matchedCount ?? 0 },
             { label: "Accepted", value: queue?.summary.acceptedCount ?? 0 },
-            { label: "Closed", value: (queue?.summary.cancelledCount ?? 0) + (queue?.summary.expiredCount ?? 0) },
+            {
+              label: "Closed",
+              value:
+                (queue?.summary.cancelledCount ?? 0) +
+                (queue?.summary.expiredCount ?? 0),
+            },
           ].map((item) => (
             <View key={item.label} style={styles.summaryCard}>
               <Text style={styles.summaryLabel}>{item.label}</Text>
@@ -263,7 +325,11 @@ export function AgentOperationsPanel() {
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Search</Text>
             <View style={styles.inputShell}>
-              <FontAwesome6 name="magnifying-glass" size={16} color={tokens.colors.muted} />
+              <FontAwesome6
+                name="magnifying-glass"
+                size={16}
+                color={tokens.colors.muted}
+              />
               <TextInput
                 value={searchDraft}
                 onChangeText={setSearchDraft}
@@ -330,7 +396,9 @@ export function AgentOperationsPanel() {
               <Text style={styles.linkText}>Reset</Text>
             </Pressable>
           </View>
-          <Text style={styles.metaText}>Scope: {locationSummary || "All markets"}</Text>
+          <Text style={styles.metaText}>
+            Scope: {locationSummary || "All markets"}
+          </Text>
         </View>
 
         <ScrollView
@@ -346,10 +414,18 @@ export function AgentOperationsPanel() {
                 key={filter.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                style={[styles.filterChip, active ? styles.filterChipActive : null]}
+                style={[
+                  styles.filterChip,
+                  active ? styles.filterChipActive : null,
+                ]}
                 onPress={() => setStatusFilter(filter.id)}
               >
-                <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    active ? styles.filterChipTextActive : null,
+                  ]}
+                >
                   {filter.label}
                 </Text>
               </Pressable>
@@ -363,10 +439,18 @@ export function AgentOperationsPanel() {
                 key={filter.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                style={[styles.filterChip, active ? styles.filterChipActive : null]}
+                style={[
+                  styles.filterChip,
+                  active ? styles.filterChipActive : null,
+                ]}
                 onPress={() => setServiceModelFilter(filter.id)}
               >
-                <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    active ? styles.filterChipTextActive : null,
+                  ]}
+                >
                   {filter.label}
                 </Text>
               </Pressable>
@@ -381,7 +465,9 @@ export function AgentOperationsPanel() {
             <Text style={styles.title}>Requests</Text>
           </View>
           <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{queue?.pagination.total ?? 0} of {queue?.summary.total ?? 0}</Text>
+            <Text style={styles.countPillText}>
+              {queue?.pagination.total ?? 0} of {queue?.summary.total ?? 0}
+            </Text>
           </View>
         </View>
 
@@ -393,7 +479,10 @@ export function AgentOperationsPanel() {
               <Pressable
                 key={item.id}
                 accessibilityRole="button"
-                style={({ pressed }) => [styles.requestCard, pressed ? styles.cardPressed : null]}
+                style={({ pressed }) => [
+                  styles.requestCard,
+                  pressed ? styles.cardPressed : null,
+                ]}
                 onPress={() => void openDetail(item.id)}
               >
                 <View style={styles.requestHeader}>
@@ -402,26 +491,35 @@ export function AgentOperationsPanel() {
                       {item.requestedServiceName}
                     </Text>
                     <Text style={styles.requestMeta} numberOfLines={1}>
-                      {item.requestedCategoryName || "General request"} · {item.requesterName}
+                      {item.requestedCategoryName || "General request"} ·{" "}
+                      {item.requesterName}
                     </Text>
                   </View>
                   <StatusPill status={item.status} />
                 </View>
 
                 <Text style={styles.requestMeta} numberOfLines={1}>
-                  {formatLocation(item.city, item.stateCode, item.countryCode)} ·{" "}
-                  {item.matchCount} {item.matchCount === 1 ? "match" : "matches"} · {item.conversationCount}{" "}
+                  {formatLocation(item.city, item.stateCode, item.countryCode)}{" "}
+                  · {item.matchCount}{" "}
+                  {item.matchCount === 1 ? "match" : "matches"} ·{" "}
+                  {item.conversationCount}{" "}
                   {item.conversationCount === 1 ? "chat" : "chats"}
                 </Text>
 
                 <View style={styles.inlineMeta}>
                   <Text style={styles.metaText}>
                     {item.budgetMinCents || item.budgetMaxCents
-                      ? `${formatMoney(item.budgetMinCents)} - ${formatMoney(item.budgetMaxCents)}`
+                      ? `${formatMoney(item.budgetMinCents, item.currencyCode)} - ${formatMoney(item.budgetMaxCents, item.currencyCode)}`
                       : "Budget flexible"}
                   </Text>
-                  <Text style={styles.metaTextRight}>Updated {formatDate(item.updatedAt)}</Text>
-                  <FontAwesome6 name="chevron-right" size={14} color={tokens.colors.mutedSoft} />
+                  <Text style={styles.metaTextRight}>
+                    Updated {formatDate(item.updatedAt)}
+                  </Text>
+                  <FontAwesome6
+                    name="chevron-right"
+                    size={14}
+                    color={tokens.colors.mutedSoft}
+                  />
                 </View>
               </Pressable>
             ))}
@@ -429,11 +527,30 @@ export function AgentOperationsPanel() {
         ) : (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No requests match</Text>
-            <Text style={styles.emptyBody}>Widen the lane or location filters to see more.</Text>
+            <Text style={styles.emptyBody}>
+              Widen the lane or location filters to see more.
+            </Text>
           </View>
         )}
       </View>
 
+      <View style={{ flexDirection: "row", gap: 16, paddingVertical: 12 }}>
+        <AuthButton
+          label="Previous"
+          variant="secondary"
+          disabled={page <= 1 || isLoading}
+          onPress={() => setPage((current) => current - 1)}
+        />
+        <Text>
+          Page {page} of {queue?.pagination.totalPages || 1}
+        </Text>
+        <AuthButton
+          label="Next"
+          variant="secondary"
+          disabled={isLoading || page >= (queue?.pagination.totalPages || 1)}
+          onPress={() => setPage((current) => current + 1)}
+        />
+      </View>
       <Modal
         visible={detailOpen}
         transparent
@@ -453,7 +570,9 @@ export function AgentOperationsPanel() {
               <View style={styles.headerRow}>
                 <View style={styles.headerCopy}>
                   <Text style={styles.modalTitle}>Request detail</Text>
-                  <Text style={styles.subtitle}>Read-only view of matches and chats.</Text>
+                  <Text style={styles.subtitle}>
+                    Read-only view of matches and chats.
+                  </Text>
                 </View>
                 <Pressable
                   style={styles.closeButton}
@@ -461,36 +580,60 @@ export function AgentOperationsPanel() {
                   accessibilityLabel="Close"
                   onPress={() => setDetailOpen(false)}
                 >
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="xmark"
+                    size={18}
+                    color={tokens.colors.ink}
+                  />
                 </Pressable>
               </View>
 
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalContent}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalContent}
+              >
                 {detailLoading ? (
                   <SkeletonCards count={2} />
                 ) : detail ? (
                   <>
                     <View style={styles.sectionCard}>
-                      <Text style={styles.detailTitle}>{detail.requestedServiceName}</Text>
-                      <Text style={styles.sectionLine}>{detail.description}</Text>
+                      <Text style={styles.detailTitle}>
+                        {detail.requestedServiceName}
+                      </Text>
+                      <Text style={styles.sectionLine}>
+                        {detail.description}
+                      </Text>
                       <Text style={styles.requestMeta}>
-                        {formatLocation(detail.city, detail.stateCode, detail.countryCode)} ·{" "}
-                        {detail.serviceModel === "PROFESSIONAL" ? "Professional" : "Local"}
+                        {formatLocation(
+                          detail.city,
+                          detail.stateCode,
+                          detail.countryCode,
+                        )}{" "}
+                        ·{" "}
+                        {detail.serviceModel === "PROFESSIONAL"
+                          ? "Professional"
+                          : "Local"}
                       </Text>
                     </View>
 
                     <View style={styles.metricGrid}>
                       <View style={styles.metricCard}>
                         <Text style={styles.metricLabel}>Matches</Text>
-                        <Text style={styles.metricValue}>{detail.matchCount}</Text>
+                        <Text style={styles.metricValue}>
+                          {detail.matchCount}
+                        </Text>
                       </View>
                       <View style={styles.metricCard}>
                         <Text style={styles.metricLabel}>Unlocked</Text>
-                        <Text style={styles.metricValue}>{detail.unlockedMatchCount}</Text>
+                        <Text style={styles.metricValue}>
+                          {detail.unlockedMatchCount}
+                        </Text>
                       </View>
                       <View style={styles.metricCard}>
                         <Text style={styles.metricLabel}>Chats</Text>
-                        <Text style={styles.metricValue}>{detail.conversationCount}</Text>
+                        <Text style={styles.metricValue}>
+                          {detail.conversationCount}
+                        </Text>
                       </View>
                     </View>
 
@@ -500,18 +643,26 @@ export function AgentOperationsPanel() {
                         Date: {formatDate(detail.desiredDate)}
                       </Text>
                       <Text style={styles.sectionLine}>
-                        Time window: {detail.desiredWindowStart || "Any"} - {detail.desiredWindowEnd || "Any"}
+                        Time window: {detail.desiredWindowStart || "Any"} -{" "}
+                        {detail.desiredWindowEnd || "Any"}
                       </Text>
                       <Text style={styles.sectionLine}>
-                        Budget: {detail.budgetMinCents || detail.budgetMaxCents
-                          ? `${formatMoney(detail.budgetMinCents)} - ${formatMoney(detail.budgetMaxCents)}`
+                        Budget:{" "}
+                        {detail.budgetMinCents || detail.budgetMaxCents
+                          ? `${formatMoney(detail.budgetMinCents, detail.currencyCode)} - ${formatMoney(detail.budgetMaxCents, detail.currencyCode)}`
                           : "Flexible"}
                       </Text>
                       <Text style={styles.sectionLine}>
-                        Channels: {detail.requestedChannels.length ? detail.requestedChannels.join(", ") : "Not set"}
+                        Channels:{" "}
+                        {detail.requestedChannels.length
+                          ? detail.requestedChannels.join(", ")
+                          : "Not set"}
                       </Text>
                       <Text style={styles.sectionLine}>
-                        Documents: {detail.requestedDocumentLabels.length ? detail.requestedDocumentLabels.join(", ") : "None"}
+                        Documents:{" "}
+                        {detail.requestedDocumentLabels.length
+                          ? detail.requestedDocumentLabels.join(", ")
+                          : "None"}
                       </Text>
                     </View>
 
@@ -522,15 +673,23 @@ export function AgentOperationsPanel() {
                           <View key={match.id} style={styles.subCard}>
                             <View style={styles.requestHeader}>
                               <View style={styles.requestHeaderCopy}>
-                                <Text style={styles.requestTitle} numberOfLines={1}>
+                                <Text
+                                  style={styles.requestTitle}
+                                  numberOfLines={1}
+                                >
                                   {match.provider?.displayName || "Provider"}
                                 </Text>
-                                <Text style={styles.requestMeta} numberOfLines={1}>
+                                <Text
+                                  style={styles.requestMeta}
+                                  numberOfLines={1}
+                                >
                                   {match.provider?.primaryLocation
                                     ? formatLocation(
                                         match.provider.primaryLocation.city,
-                                        match.provider.primaryLocation.stateCode,
-                                        match.provider.primaryLocation.countryCode,
+                                        match.provider.primaryLocation
+                                          .stateCode,
+                                        match.provider.primaryLocation
+                                          .countryCode,
                                       )
                                     : "Location pending"}
                                 </Text>
@@ -541,27 +700,38 @@ export function AgentOperationsPanel() {
                             <View style={styles.metricGrid}>
                               <View style={styles.metricCardWhite}>
                                 <Text style={styles.metricLabel}>Score</Text>
-                                <Text style={styles.metricValue}>{match.score.toFixed(2)}</Text>
+                                <Text style={styles.metricValue}>
+                                  {match.score.toFixed(2)}
+                                </Text>
                               </View>
                               <View style={styles.metricCardWhite}>
                                 <Text style={styles.metricLabel}>Unlock</Text>
-                                <Text style={styles.metricValue}>{formatMoney(match.unlockPriceCents)}</Text>
+                                <Text style={styles.metricValue}>
+                                  {formatMoney(match.unlockPriceCents)}
+                                </Text>
                               </View>
                               <View style={styles.metricCardWhite}>
                                 <Text style={styles.metricLabel}>Distance</Text>
                                 <Text style={styles.metricValue}>
-                                  {match.distanceMiles ? `${match.distanceMiles.toFixed(1)} mi` : "—"}
+                                  {match.distanceMiles
+                                    ? `${match.distanceMiles.toFixed(1)} mi`
+                                    : "—"}
                                 </Text>
                               </View>
                             </View>
 
                             <Text style={styles.sectionLine}>
-                              Chat: {match.conversation ? `${match.conversation.messageCount} messages` : "Not unlocked yet"}
+                              Chat:{" "}
+                              {match.conversation
+                                ? `${match.conversation.messageCount} messages`
+                                : "Not unlocked yet"}
                             </Text>
                           </View>
                         ))
                       ) : (
-                        <Text style={styles.emptyBody}>No provider matches yet.</Text>
+                        <Text style={styles.emptyBody}>
+                          No provider matches yet.
+                        </Text>
                       )}
                     </View>
 
@@ -572,23 +742,35 @@ export function AgentOperationsPanel() {
                           <View key={conversation.id} style={styles.subCard}>
                             <View style={styles.requestHeader}>
                               <View style={styles.requestHeaderCopy}>
-                                <Text style={styles.requestTitle} numberOfLines={1}>
-                                  {conversation.provider?.displayName || "Provider"}
+                                <Text
+                                  style={styles.requestTitle}
+                                  numberOfLines={1}
+                                >
+                                  {conversation.provider?.displayName ||
+                                    "Provider"}
                                 </Text>
-                                <Text style={styles.requestMeta} numberOfLines={1}>
-                                  {conversation.messageCount} messages · updated {formatDateTime(conversation.updatedAt)}
+                                <Text
+                                  style={styles.requestMeta}
+                                  numberOfLines={1}
+                                >
+                                  {conversation.messageCount} messages · updated{" "}
+                                  {formatDateTime(conversation.updatedAt)}
                                 </Text>
                               </View>
                               <StatusPill status={conversation.status} />
                             </View>
 
                             <Text style={styles.sectionLine} numberOfLines={2}>
-                              Latest: {conversation.lastMessage?.content || "No message yet"}
+                              Latest:{" "}
+                              {conversation.lastMessage?.content ||
+                                "No message yet"}
                             </Text>
                           </View>
                         ))
                       ) : (
-                        <Text style={styles.emptyBody}>No conversations on this request yet.</Text>
+                        <Text style={styles.emptyBody}>
+                          No conversations on this request yet.
+                        </Text>
                       )}
                     </View>
                   </>

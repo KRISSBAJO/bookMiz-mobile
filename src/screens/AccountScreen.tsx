@@ -1,7 +1,14 @@
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { AuthButton } from "@/src/components/auth/AuthButton";
 import { PersonaSwitcher } from "@/src/components/PersonaSwitcher";
@@ -10,6 +17,11 @@ import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import type { NotificationPreferences } from "@/src/lib/api/types";
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
+import {
+  enablePush,
+  disablePush,
+  getPushRegistration,
+} from "@/src/lib/mobile-push";
 
 type IconName = React.ComponentProps<typeof FontAwesome6>["name"];
 
@@ -46,7 +58,11 @@ const notificationLabels: Array<{
   },
 ];
 
-function initialsFor(firstName?: string | null, lastName?: string | null, email?: string | null) {
+function initialsFor(
+  firstName?: string | null,
+  lastName?: string | null,
+  email?: string | null,
+) {
   const letters = `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase();
   return letters || (email ?? "B").slice(0, 2).toUpperCase();
 }
@@ -83,7 +99,10 @@ function SettingsRow({
       <View style={[styles.rowIcon, danger ? styles.rowIconDanger : null]}>
         <FontAwesome6 name={icon} size={16} color={color} />
       </View>
-      <Text style={[styles.rowLabel, danger ? styles.rowLabelDanger : null]} numberOfLines={1}>
+      <Text
+        style={[styles.rowLabel, danger ? styles.rowLabelDanger : null]}
+        numberOfLines={1}
+      >
         {label}
       </Text>
       {value ? (
@@ -105,37 +124,71 @@ export function AccountScreen() {
   const session = useSession();
   const user = session.user;
   const profile = session.profile;
-  const [firstName, setFirstName] = useState(profile?.firstName ?? user?.firstName ?? "");
-  const [lastName, setLastName] = useState(profile?.lastName ?? user?.lastName ?? "");
+  const [firstName, setFirstName] = useState(
+    profile?.firstName ?? user?.firstName ?? "",
+  );
+  const [lastName, setLastName] = useState(
+    profile?.lastName ?? user?.lastName ?? "",
+  );
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [city, setCity] = useState(profile?.city ?? user?.city ?? "");
-  const [stateCode, setStateCode] = useState(profile?.stateCode ?? user?.stateCode ?? "");
-  const [notificationState, setNotificationState] = useState<NotificationPreferences | null>(
-    profile?.notificationPreferences ?? null,
+  const [stateCode, setStateCode] = useState(
+    profile?.stateCode ?? user?.stateCode ?? "",
   );
+  const [notificationState, setNotificationState] =
+    useState<NotificationPreferences | null>(
+      profile?.notificationPreferences ?? null,
+    );
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isEditingNotifications, setIsEditingNotifications] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void getPushRegistration()
+      .then((saved) => {
+        if (active) setPushEnabled(saved?.userId === user?.id);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
+    if (isEditingProfile) return;
     setFirstName(profile?.firstName ?? user?.firstName ?? "");
     setLastName(profile?.lastName ?? user?.lastName ?? "");
     setPhone(profile?.phone ?? "");
     setCity(profile?.city ?? user?.city ?? "");
     setStateCode(profile?.stateCode ?? user?.stateCode ?? "");
-    setNotificationState(profile?.notificationPreferences ?? null);
-  }, [profile, user]);
+  }, [profile, user, isEditingProfile]);
+  useEffect(() => {
+    if (!isEditingNotifications)
+      setNotificationState(profile?.notificationPreferences ?? null);
+  }, [profile?.notificationPreferences, isEditingNotifications]);
 
   const canSaveProfile = useMemo(
     () => firstName.trim().length > 0 && lastName.trim().length > 0,
     [firstName, lastName],
   );
 
-  const fullName = [profile?.firstName ?? user?.firstName, profile?.lastName ?? user?.lastName].filter(Boolean).join(" ");
+  const fullName = [
+    profile?.firstName ?? user?.firstName,
+    profile?.lastName ?? user?.lastName,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const email = profile?.email ?? user?.email ?? "";
-  const locationLabel = [profile?.city ?? user?.city, profile?.stateCode ?? user?.stateCode].filter(Boolean).join(", ");
+  const locationLabel = [
+    profile?.city ?? user?.city,
+    profile?.stateCode ?? user?.stateCode,
+  ]
+    .filter(Boolean)
+    .join(", ");
   const enabledNotifications = notificationLabels.filter(
     (item) => notificationState?.[item.key],
   ).length;
@@ -168,7 +221,8 @@ export function AccountScreen() {
           </Text>
           {user?.userType !== "CUSTOMER" ? (
             <Text style={styles.personaCaption}>
-              Customer mode lets you browse. To book for yourself, sign in with a customer account.
+              Customer mode lets you browse. To book for yourself, sign in with
+              a customer account.
             </Text>
           ) : null}
           <View style={styles.personaSwitcherWrap}>
@@ -182,7 +236,9 @@ export function AccountScreen() {
       ) : null}
 
       <View style={styles.profileSection}>
-        <Text style={styles.editorTitle} accessibilityRole="header">Profile details</Text>
+        <Text style={styles.editorTitle} accessibilityRole="header">
+          Profile details
+        </Text>
         {[
           { label: "Full name", value: fullName || "Add your name" },
           { label: "Email", value: email || "Not provided" },
@@ -191,7 +247,9 @@ export function AccountScreen() {
         ].map((item) => (
           <View key={item.label} style={styles.profileDetail}>
             <Text style={styles.detailLabel}>{item.label}</Text>
-            <Text selectable style={styles.detailValue}>{item.value}</Text>
+            <Text selectable style={styles.detailValue}>
+              {item.value}
+            </Text>
           </View>
         ))}
         {!isEditingProfile ? (
@@ -331,7 +389,9 @@ export function AccountScreen() {
                 key={item.key}
                 style={[
                   styles.preferenceRow,
-                  index < notificationLabels.length - 1 ? styles.rowDivider : null,
+                  index < notificationLabels.length - 1
+                    ? styles.rowDivider
+                    : null,
                 ]}
               >
                 <View style={styles.preferenceCopy}>
@@ -346,7 +406,10 @@ export function AccountScreen() {
                       current ? { ...current, [item.key]: value } : current,
                     )
                   }
-                  trackColor={{ false: tokens.colors.borderStrong, true: tokens.colors.brand }}
+                  trackColor={{
+                    false: tokens.colors.borderStrong,
+                    true: tokens.colors.brand,
+                  }}
                   thumbColor="#ffffff"
                   accessibilityLabel={item.title}
                 />
@@ -357,7 +420,11 @@ export function AccountScreen() {
           <AuthButton
             label="Save"
             loading={isSavingNotifications}
-            disabled={!notificationState || isSavingNotifications || !isEditingNotifications}
+            disabled={
+              !notificationState ||
+              isSavingNotifications ||
+              !isEditingNotifications
+            }
             onPress={async () => {
               if (!notificationState) {
                 return;
@@ -367,6 +434,7 @@ export function AccountScreen() {
                 setError(null);
                 setIsSavingNotifications(true);
                 await session.updateNotificationPreferences(notificationState);
+                setIsEditingNotifications(false);
               } catch (nextError) {
                 const message = getFriendlyApiError(
                   nextError,
@@ -375,9 +443,14 @@ export function AccountScreen() {
                 setError(message);
               } finally {
                 setIsSavingNotifications(false);
-                setIsEditingNotifications(false);
               }
             }}
+          />
+          <AuthButton
+            label="Cancel notification changes"
+            variant="secondary"
+            disabled={isSavingNotifications}
+            onPress={() => setIsEditingNotifications(false)}
           />
         </View>
       ) : null}
@@ -404,6 +477,52 @@ export function AccountScreen() {
         </View>
       ) : null}
 
+      <View style={styles.profileSection}>
+        <Text accessibilityRole="header" style={styles.editorTitle}>
+          Device notifications
+        </Text>
+        <Text style={styles.detailLabel}>
+          Receive private activity alerts on this device. Message and payment
+          details stay inside BookMiz.
+        </Text>
+        <AuthButton
+          label={
+            pushEnabled
+              ? "Disable device notifications"
+              : "Enable device notifications"
+          }
+          variant="secondary"
+          loading={pushBusy}
+          disabled={pushBusy}
+          onPress={async () => {
+            if (!user) return;
+            setPushBusy(true);
+            setError(null);
+            try {
+              if (pushEnabled) await disablePush(user.id);
+              else await enablePush(user.id);
+              setPushEnabled(!pushEnabled);
+            } catch (reason) {
+              setError(
+                getFriendlyApiError(
+                  reason,
+                  "Could not update device notifications. Check your device settings and try again.",
+                ),
+              );
+            } finally {
+              setPushBusy(false);
+            }
+          }}
+        />
+      </View>
+      <View style={styles.group}>
+        <SettingsRow
+          icon="shield-halved"
+          label="Security and signed-in devices"
+          onPress={() => router.push("./security")}
+          last
+        />
+      </View>
       <View style={styles.group}>
         <SettingsRow
           icon="arrow-right-from-bracket"

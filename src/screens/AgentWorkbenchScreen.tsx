@@ -1,4 +1,5 @@
 import { useFocusEffect } from "expo-router/react-navigation";
+import { useRouter } from "expo-router";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -227,7 +228,9 @@ function buildPayoutFormFromDashboard(
     payoutAccountId:
       requestedAccountId ??
       dashboard?.payoutWorkspace.defaultPayoutAccountId ??
-      dashboard?.payoutWorkspace.accounts.find((account) => account.status === "ACTIVE")?.id ??
+      dashboard?.payoutWorkspace.accounts.find(
+        (account) => account.status === "ACTIVE",
+      )?.id ??
       "",
     agentNote: "",
   };
@@ -238,6 +241,7 @@ function countStatus<T extends { status: string }>(items: T[], status: string) {
 }
 
 export function AgentWorkbenchScreen() {
+  const router = useRouter();
   const session = useSession();
   const [dashboard, setDashboard] = useState<AgentDashboard | null>(null);
   const [activeTab, setActiveTab] = useState<AgentTabId>("overview");
@@ -250,27 +254,48 @@ export function AgentWorkbenchScreen() {
     payoutAccountId: "",
     agentNote: "",
   });
-  const [accountForm, setAccountForm] = useState<AccountFormState>(defaultAccountForm);
+  const [accountForm, setAccountForm] =
+    useState<AccountFormState>(defaultAccountForm);
   const [banks, setBanks] = useState<PlatformPayoutBankDirectory>([]);
   const [bankLookupLoading, setBankLookupLoading] = useState(false);
   const [resolutionLoading, setResolutionLoading] = useState(false);
-  const [resolvedAccountName, setResolvedAccountName] = useState<string | null>(null);
+  const [resolvedAccountName, setResolvedAccountName] = useState<string | null>(
+    null,
+  );
+  const resolutionKey = `${accountForm.countryCode}:${accountForm.bankCode}:${accountForm.accountNumber}`;
+  const currentResolutionKey = useRef(resolutionKey);
+  currentResolutionKey.current = resolutionKey;
+  useEffect(() => {
+    setResolvedAccountName(null);
+  }, [resolutionKey]);
   const [isSubmittingPayout, setIsSubmittingPayout] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
-  const [settingDefaultAccountId, setSettingDefaultAccountId] = useState<string | null>(null);
+  const [settingDefaultAccountId, setSettingDefaultAccountId] = useState<
+    string | null
+  >(null);
 
   const agentName =
-    [session.user?.firstName, session.user?.lastName].filter(Boolean).join(" ").trim() ||
+    [session.user?.firstName, session.user?.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
     session.user?.email ||
     "BookMiz agent";
 
   const activeCurrencyCode =
+    dashboard?.summary.currencyCode ??
     dashboard?.payoutWorkspace.account?.currencyCode ??
     dashboard?.commissions[0]?.currencyCode ??
     "USD";
-  const operatingCountryCode = dashboard?.payoutWorkspace.operatingCountryCode ?? "US";
+  const operatingCountryCode =
+    dashboard?.payoutWorkspace.operatingCountryCode ?? "US";
   const payoutAccounts = dashboard?.payoutWorkspace.accounts ?? [];
-  const activePayoutAccounts = payoutAccounts.filter((account) => account.status === "ACTIVE");
+  const activePayoutAccounts = payoutAccounts.filter(
+    (account) => account.status === "ACTIVE",
+  );
+  const matchingPayoutAccounts = activePayoutAccounts.filter(
+    (account) => account.currencyCode === activeCurrencyCode,
+  );
 
   const availableCommissionCount = useMemo(
     () => countStatus(dashboard?.commissions ?? [], "AVAILABLE"),
@@ -294,10 +319,18 @@ export function AgentWorkbenchScreen() {
       const nextDashboard = await getAgentDashboard();
       setDashboard(nextDashboard);
       setPayoutForm((current) =>
-        buildPayoutFormFromDashboard(nextDashboard, current.payoutAccountId || undefined),
+        buildPayoutFormFromDashboard(
+          nextDashboard,
+          current.payoutAccountId || undefined,
+        ),
       );
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not load the agent workspace."));
+      setError(
+        getFriendlyApiError(
+          nextError,
+          "We could not load the agent workspace.",
+        ),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -329,7 +362,9 @@ export function AgentWorkbenchScreen() {
         setBanks(nextBanks.filter((bank) => bank.active));
       } catch (nextError) {
         if (isActive) {
-          setError(getFriendlyApiError(nextError, "We could not load payout banks."));
+          setError(
+            getFriendlyApiError(nextError, "We could not load payout banks."),
+          );
         }
       } finally {
         if (isActive) {
@@ -351,7 +386,10 @@ export function AgentWorkbenchScreen() {
       setSuccess(null);
       setResolvedAccountName(account?.accountHolderName ?? null);
       setAccountForm(
-        buildAccountFormFromAccount(account ?? dashboard?.payoutWorkspace.account ?? null, operatingCountryCode),
+        buildAccountFormFromAccount(
+          account ?? dashboard?.payoutWorkspace.account ?? null,
+          operatingCountryCode,
+        ),
       );
       setAccountModalOpen(true);
     },
@@ -362,7 +400,9 @@ export function AgentWorkbenchScreen() {
     (requestedAccountId?: string) => {
       setError(null);
       setSuccess(null);
-      setPayoutForm(buildPayoutFormFromDashboard(dashboard, requestedAccountId));
+      setPayoutForm(
+        buildPayoutFormFromDashboard(dashboard, requestedAccountId),
+      );
       setPayoutModalOpen(true);
     },
     [dashboard],
@@ -383,8 +423,15 @@ export function AgentWorkbenchScreen() {
   }, []);
 
   const handleResolveAccount = useCallback(async () => {
-    if (accountForm.countryCode !== "NG" || !accountForm.bankCode || !accountForm.accountNumber) {
-      setError("Choose a Nigerian bank and enter the account number to verify it.");
+    const resolvingKey = `${accountForm.countryCode}:${accountForm.bankCode}:${accountForm.accountNumber}`;
+    if (
+      accountForm.countryCode !== "NG" ||
+      !accountForm.bankCode ||
+      !accountForm.accountNumber
+    ) {
+      setError(
+        "Choose a Nigerian bank and enter the account number to verify it.",
+      );
       return;
     }
 
@@ -396,6 +443,7 @@ export function AgentWorkbenchScreen() {
         bankCode: accountForm.bankCode,
         accountNumber: accountForm.accountNumber,
       });
+      if (resolvingKey !== currentResolutionKey.current) return;
       setResolvedAccountName(result.accountName);
       setAccountForm((current) => ({
         ...current,
@@ -407,11 +455,21 @@ export function AgentWorkbenchScreen() {
       }));
       setSuccess("Payout account verified.");
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not verify that payout account."));
+      setError(
+        getFriendlyApiError(
+          nextError,
+          "We could not verify that payout account.",
+        ),
+      );
     } finally {
       setResolutionLoading(false);
     }
-  }, [accountForm.accountNumber, accountForm.bankCode, accountForm.countryCode, banks]);
+  }, [
+    accountForm.accountNumber,
+    accountForm.bankCode,
+    accountForm.countryCode,
+    banks,
+  ]);
 
   const handleSubmitAccount = useCallback(async () => {
     try {
@@ -441,33 +499,51 @@ export function AgentWorkbenchScreen() {
       setAccountModalOpen(false);
       await loadDashboard();
       setSuccess(
-        accountForm.accountId ? "Payout method updated." : "Payout method added successfully.",
+        accountForm.accountId
+          ? "Payout method updated."
+          : "Payout method added successfully.",
       );
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not save that payout method."));
+      setError(
+        getFriendlyApiError(nextError, "We could not save that payout method."),
+      );
     } finally {
       setSavingAccount(false);
     }
   }, [accountForm, banks, loadDashboard]);
 
-  const handleSetDefaultAccount = useCallback(async (accountId: string) => {
-    try {
-      setSettingDefaultAccountId(accountId);
-      setError(null);
-      setSuccess(null);
-      await setDefaultAgentPayoutAccount(accountId);
-      await loadDashboard();
-      setSuccess("Default payout method updated.");
-    } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not update the default payout method."));
-    } finally {
-      setSettingDefaultAccountId(null);
-    }
-  }, [loadDashboard]);
+  const handleSetDefaultAccount = useCallback(
+    async (accountId: string) => {
+      try {
+        setSettingDefaultAccountId(accountId);
+        setError(null);
+        setSuccess(null);
+        await setDefaultAgentPayoutAccount(accountId);
+        await loadDashboard();
+        setSuccess("Default payout method updated.");
+      } catch (nextError) {
+        setError(
+          getFriendlyApiError(
+            nextError,
+            "We could not update the default payout method.",
+          ),
+        );
+      } finally {
+        setSettingDefaultAccountId(null);
+      }
+    },
+    [loadDashboard],
+  );
 
   const submitPayoutRequest = useCallback(async () => {
-    if (!payoutForm.payoutAccountId) {
-      setError("Choose an active payout method before requesting payout.");
+    if (
+      !matchingPayoutAccounts.some(
+        (account) => account.id === payoutForm.payoutAccountId,
+      )
+    ) {
+      setError(
+        "Choose an active payout method in the displayed balance’s currency.",
+      );
       return;
     }
 
@@ -484,16 +560,28 @@ export function AgentWorkbenchScreen() {
       await loadDashboard();
       setSuccess("Payout request submitted for finance review.");
     } catch (nextError) {
-      setError(getFriendlyApiError(nextError, "We could not submit that payout request."));
+      setError(
+        getFriendlyApiError(
+          nextError,
+          "We could not submit that payout request.",
+        ),
+      );
     } finally {
       setIsSubmittingPayout(false);
     }
-  }, [dashboard, loadDashboard, payoutForm]);
+  }, [dashboard, loadDashboard, payoutForm, matchingPayoutAccounts]);
 
-  const canRequestPayout = activePayoutAccounts.length > 0;
+  const canRequestPayout =
+    matchingPayoutAccounts.length > 0 &&
+    (dashboard?.summary.availableCommissionCents ?? 0) > 0 &&
+    (dashboard?.summary.availableCommissionCents ?? 0) >=
+      (dashboard?.summary.minimumPayoutCents ?? 0);
   const defaultAccount = dashboard?.payoutWorkspace.account ?? null;
 
-  const renderAttributionRow = (attribution: PlatformAgentAttribution, showEnds: boolean) => {
+  const renderAttributionRow = (
+    attribution: PlatformAgentAttribution,
+    showEnds: boolean,
+  ) => {
     const expiring = isAttributionExpiringSoon(attribution);
     const statusKey = expiring ? "PENDING" : attribution.status;
     const name = attribution.provider?.displayName ?? "Provider removed";
@@ -508,8 +596,12 @@ export function AgentWorkbenchScreen() {
           </Text>
           <Text style={styles.rowMeta} numberOfLines={1}>
             {providerLocationLabel(attribution)}
-            {attribution.provider?.serviceModel ? ` · ${formatStatusLabel(attribution.provider.serviceModel)}` : ""}
-            {showEnds ? ` · Ends ${formatDate(attribution.attributionEndsAt)}` : ""}
+            {attribution.provider?.serviceModel
+              ? ` · ${formatStatusLabel(attribution.provider.serviceModel)}`
+              : ""}
+            {showEnds
+              ? ` · Ends ${formatDate(attribution.attributionEndsAt)}`
+              : ""}
           </Text>
         </View>
         <View style={[styles.statusPill, getStatusTone(statusKey)]}>
@@ -526,7 +618,9 @@ export function AgentWorkbenchScreen() {
       <View style={styles.cardHeaderRow}>
         <View style={styles.rowBody}>
           <Text style={styles.cardTitle}>
-            {defaultAccount ? defaultAccount.destinationLabel || defaultAccount.bankName : "No payout method"}
+            {defaultAccount
+              ? defaultAccount.destinationLabel || defaultAccount.bankName
+              : "No payout method"}
           </Text>
           <Text style={styles.rowMeta}>
             {defaultAccount
@@ -536,12 +630,18 @@ export function AgentWorkbenchScreen() {
         </View>
         {defaultAccount ? (
           <View style={[styles.statusPill, styles.statusSuccess]}>
-            <Text style={[styles.statusText, styles.statusTextSuccess]}>Default</Text>
+            <Text style={[styles.statusText, styles.statusTextSuccess]}>
+              Default
+            </Text>
           </View>
         ) : null}
       </View>
       <AuthButton
-        label={payoutAccounts.length > 0 ? "Manage payout method" : "Add payout method"}
+        label={
+          payoutAccounts.length > 0
+            ? "Manage payout method"
+            : "Add payout method"
+        }
         variant="secondary"
         style={styles.secondaryButton}
         onPress={() => openAddAccountModal()}
@@ -568,7 +668,10 @@ export function AgentWorkbenchScreen() {
           <Text style={styles.errorText} accessibilityRole="alert">
             {error}
           </Text>
-          <Pressable onPress={() => void loadDashboard()} accessibilityRole="button">
+          <Pressable
+            onPress={() => void loadDashboard()}
+            accessibilityRole="button"
+          >
             <Text style={styles.errorRetry}>Try again</Text>
           </Pressable>
         </View>
@@ -579,6 +682,28 @@ export function AgentWorkbenchScreen() {
         </View>
       ) : null}
 
+      <AuthButton
+        label="Create a service request"
+        variant="secondary"
+        onPress={() => {
+          session.switchPersona("customer");
+          router.push({
+            pathname: "/(tabs)/workbench",
+            params: { service: "Custom service", description: "" },
+          });
+        }}
+      />
+      <Text style={styles.emptyBody}>
+        Create a request for your own account. Provider service menus are
+        managed by authorized providers.
+      </Text>
+      {dashboard?.payoutWorkspace.balancesByCurrency?.map((balance) => (
+        <Text key={balance.currencyCode} style={styles.emptyBody}>
+          {balance.currencyCode} available:{" "}
+          {formatMoney(balance.availableCommissionCents, balance.currencyCode)}.
+          Change the default payout method to request a different currency.
+        </Text>
+      ))}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -600,7 +725,12 @@ export function AgentWorkbenchScreen() {
                 size={14}
                 color={active ? "#ffffff" : tokens.colors.ink}
               />
-              <Text style={[styles.tabChipText, active ? styles.tabChipTextActive : null]}>
+              <Text
+                style={[
+                  styles.tabChipText,
+                  active ? styles.tabChipTextActive : null,
+                ]}
+              >
                 {tab.label}
               </Text>
             </Pressable>
@@ -623,7 +753,10 @@ export function AgentWorkbenchScreen() {
               { label: "Pending", value: commissionTotals.pending },
               { label: "Requested", value: commissionTotals.requested },
               { label: "Paid out", value: commissionTotals.paid },
-              { label: "Minimum payout", value: dashboard.summary.minimumPayoutCents ?? 0 },
+              {
+                label: "Minimum payout",
+                value: dashboard.summary.minimumPayoutCents ?? 0,
+              },
             ].map((item) => (
               <View key={item.label} style={styles.balanceRow}>
                 <Text style={styles.balanceLabel}>{item.label}</Text>
@@ -640,15 +773,25 @@ export function AgentWorkbenchScreen() {
             <SectionHeader
               title="Providers"
               subtitle={`${dashboard.summary.activeProviderCount ?? 0} active · ${dashboard.summary.expiringAttributionCount ?? 0} expiring soon`}
-              actionLabel={dashboard.attributions.length > 4 ? "See all" : undefined}
-              onAction={dashboard.attributions.length > 4 ? () => setActiveTab("providers") : undefined}
+              actionLabel={
+                dashboard.attributions.length > 4 ? "See all" : undefined
+              }
+              onAction={
+                dashboard.attributions.length > 4
+                  ? () => setActiveTab("providers")
+                  : undefined
+              }
             />
             {dashboard.attributions.length > 0 ? (
-              dashboard.attributions.slice(0, 4).map((attribution) => renderAttributionRow(attribution, false))
+              dashboard.attributions
+                .slice(0, 4)
+                .map((attribution) => renderAttributionRow(attribution, false))
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No providers yet</Text>
-                <Text style={styles.emptyBody}>Providers you bring on show up here.</Text>
+                <Text style={styles.emptyBody}>
+                  Providers you bring on show up here.
+                </Text>
               </View>
             )}
           </View>
@@ -664,11 +807,15 @@ export function AgentWorkbenchScreen() {
             subtitle={`${countStatus(dashboard.attributions, "ACTIVE")} active of ${dashboard.attributions.length}`}
           />
           {dashboard.attributions.length > 0 ? (
-            dashboard.attributions.map((attribution) => renderAttributionRow(attribution, true))
+            dashboard.attributions.map((attribution) =>
+              renderAttributionRow(attribution, true),
+            )
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>No providers yet</Text>
-              <Text style={styles.emptyBody}>Providers you bring on show up here.</Text>
+              <Text style={styles.emptyBody}>
+                Providers you bring on show up here.
+              </Text>
             </View>
           )}
         </View>
@@ -688,8 +835,12 @@ export function AgentWorkbenchScreen() {
                     {commission.provider?.displayName ?? "Provider removed"}
                   </Text>
                   <Text style={styles.rowMeta} numberOfLines={1}>
-                    {commissionSourceLabel(commission.sourceType)} · {commission.commissionPercent}% of{" "}
-                    {formatMoney(commission.grossAmountCents, commission.currencyCode)}
+                    {commissionSourceLabel(commission.sourceType)} ·{" "}
+                    {commission.commissionPercent}% of{" "}
+                    {formatMoney(
+                      commission.grossAmountCents,
+                      commission.currencyCode,
+                    )}
                   </Text>
                   {commission.note ? (
                     <Text style={styles.rowNote} numberOfLines={2}>
@@ -699,10 +850,23 @@ export function AgentWorkbenchScreen() {
                 </View>
                 <View style={styles.rowEnd}>
                   <Text style={styles.rowAmount}>
-                    {formatMoney(commission.commissionAmountCents, commission.currencyCode)}
+                    {formatMoney(
+                      commission.commissionAmountCents,
+                      commission.currencyCode,
+                    )}
                   </Text>
-                  <View style={[styles.statusPill, getStatusTone(commission.status)]}>
-                    <Text style={[styles.statusText, getStatusTextTone(commission.status)]}>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      getStatusTone(commission.status),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        getStatusTextTone(commission.status),
+                      ]}
+                    >
                       {formatStatusLabel(commission.status)}
                     </Text>
                   </View>
@@ -712,7 +876,9 @@ export function AgentWorkbenchScreen() {
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>No commissions yet</Text>
-              <Text style={styles.emptyBody}>Earnings from your providers show up here.</Text>
+              <Text style={styles.emptyBody}>
+                Earnings from your providers show up here.
+              </Text>
             </View>
           )}
         </View>
@@ -735,7 +901,8 @@ export function AgentWorkbenchScreen() {
                       {account.destinationLabel || account.bankName}
                     </Text>
                     <Text style={styles.rowMeta} numberOfLines={1}>
-                      {getCountryLabel(account.countryCode)} · {account.bankName} · ••••
+                      {getCountryLabel(account.countryCode)} ·{" "}
+                      {account.bankName} · ••••
                       {account.accountNumberLast4 ?? "—"}
                     </Text>
                     <View style={styles.rowLinks}>
@@ -750,11 +917,15 @@ export function AgentWorkbenchScreen() {
                         <Pressable
                           accessibilityRole="button"
                           hitSlop={8}
-                          onPress={() => void handleSetDefaultAccount(account.id)}
+                          onPress={() =>
+                            void handleSetDefaultAccount(account.id)
+                          }
                           disabled={settingDefaultAccountId === account.id}
                         >
                           <Text style={styles.linkText}>
-                            {settingDefaultAccountId === account.id ? "Saving…" : "Make default"}
+                            {settingDefaultAccountId === account.id
+                              ? "Saving…"
+                              : "Make default"}
                           </Text>
                         </Pressable>
                       ) : null}
@@ -763,16 +934,22 @@ export function AgentWorkbenchScreen() {
                   <View
                     style={[
                       styles.statusPill,
-                      account.isDefault ? styles.statusSuccess : getStatusTone(account.status),
+                      account.isDefault
+                        ? styles.statusSuccess
+                        : getStatusTone(account.status),
                     ]}
                   >
                     <Text
                       style={[
                         styles.statusText,
-                        account.isDefault ? styles.statusTextSuccess : getStatusTextTone(account.status),
+                        account.isDefault
+                          ? styles.statusTextSuccess
+                          : getStatusTextTone(account.status),
                       ]}
                     >
-                      {account.isDefault ? "Default" : formatStatusLabel(account.status)}
+                      {account.isDefault
+                        ? "Default"
+                        : formatStatusLabel(account.status)}
                     </Text>
                   </View>
                 </View>
@@ -780,7 +957,9 @@ export function AgentWorkbenchScreen() {
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No payout methods yet</Text>
-                <Text style={styles.emptyBody}>Add a bank account to get paid.</Text>
+                <Text style={styles.emptyBody}>
+                  Add a bank account to get paid.
+                </Text>
               </View>
             )}
           </View>
@@ -796,11 +975,20 @@ export function AgentWorkbenchScreen() {
                     </Text>
                     <Text style={styles.rowMeta} numberOfLines={1}>
                       Requested {formatDate(request.requestedAt)}
-                      {request.destinationSummary ? ` · ${request.destinationSummary}` : ""}
+                      {request.destinationSummary
+                        ? ` · ${request.destinationSummary}`
+                        : ""}
                     </Text>
                   </View>
-                  <View style={[styles.statusPill, getStatusTone(request.status)]}>
-                    <Text style={[styles.statusText, getStatusTextTone(request.status)]}>
+                  <View
+                    style={[styles.statusPill, getStatusTone(request.status)]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        getStatusTextTone(request.status),
+                      ]}
+                    >
                       {formatStatusLabel(request.status)}
                     </Text>
                   </View>
@@ -809,7 +997,9 @@ export function AgentWorkbenchScreen() {
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No payout requests yet</Text>
-                <Text style={styles.emptyBody}>Request a payout once your balance clears the minimum.</Text>
+                <Text style={styles.emptyBody}>
+                  Request a payout once your balance clears the minimum.
+                </Text>
               </View>
             )}
           </View>
@@ -832,9 +1022,16 @@ export function AgentWorkbenchScreen() {
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
+              {error ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {error}
+                </Text>
+              ) : null}
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
-                  {accountForm.accountId ? "Edit payout method" : "Add payout method"}
+                  {accountForm.accountId
+                    ? "Edit payout method"
+                    : "Add payout method"}
                 </Text>
                 <Pressable
                   style={styles.closeButton}
@@ -842,7 +1039,11 @@ export function AgentWorkbenchScreen() {
                   accessibilityLabel="Close"
                   onPress={() => setAccountModalOpen(false)}
                 >
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="xmark"
+                    size={18}
+                    color={tokens.colors.ink}
+                  />
                 </Pressable>
               </View>
 
@@ -861,10 +1062,20 @@ export function AgentWorkbenchScreen() {
                           key={countryCode}
                           accessibilityRole="button"
                           accessibilityState={{ selected: active }}
-                          style={[styles.chip, active ? styles.chipActive : null]}
-                          onPress={() => handleAccountCountryChange(countryCode)}
+                          style={[
+                            styles.chip,
+                            active ? styles.chipActive : null,
+                          ]}
+                          onPress={() =>
+                            handleAccountCountryChange(countryCode)
+                          }
                         >
-                          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                          <Text
+                            style={[
+                              styles.chipText,
+                              active ? styles.chipTextActive : null,
+                            ]}
+                          >
                             {getCountryLabel(countryCode)}
                           </Text>
                         </Pressable>
@@ -878,7 +1089,10 @@ export function AgentWorkbenchScreen() {
                   placeholder="Main account"
                   value={accountForm.destinationLabel}
                   onChangeText={(value) =>
-                    setAccountForm((current) => ({ ...current, destinationLabel: value }))
+                    setAccountForm((current) => ({
+                      ...current,
+                      destinationLabel: value,
+                    }))
                   }
                   autoComplete="off"
                 />
@@ -903,7 +1117,10 @@ export function AgentWorkbenchScreen() {
                                 key={bank.code}
                                 accessibilityRole="button"
                                 accessibilityState={{ selected: active }}
-                                style={[styles.chip, active ? styles.chipActive : null]}
+                                style={[
+                                  styles.chip,
+                                  active ? styles.chipActive : null,
+                                ]}
                                 onPress={() =>
                                   setAccountForm((current) => ({
                                     ...current,
@@ -912,7 +1129,12 @@ export function AgentWorkbenchScreen() {
                                   }))
                                 }
                               >
-                                <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                                <Text
+                                  style={[
+                                    styles.chipText,
+                                    active ? styles.chipTextActive : null,
+                                  ]}
+                                >
                                   {bank.name}
                                 </Text>
                               </Pressable>
@@ -927,7 +1149,10 @@ export function AgentWorkbenchScreen() {
                       placeholder="10 digits"
                       value={accountForm.accountNumber}
                       onChangeText={(value) =>
-                        setAccountForm((current) => ({ ...current, accountNumber: value }))
+                        setAccountForm((current) => ({
+                          ...current,
+                          accountNumber: value,
+                        }))
                       }
                       keyboardType="number-pad"
                       autoComplete="off"
@@ -948,7 +1173,10 @@ export function AgentWorkbenchScreen() {
                       placeholder="Name on the account"
                       value={accountForm.accountHolderName}
                       onChangeText={(value) =>
-                        setAccountForm((current) => ({ ...current, accountHolderName: value }))
+                        setAccountForm((current) => ({
+                          ...current,
+                          accountHolderName: value,
+                        }))
                       }
                       autoComplete="name"
                     />
@@ -957,7 +1185,10 @@ export function AgentWorkbenchScreen() {
                       placeholder="Bank"
                       value={accountForm.bankName}
                       onChangeText={(value) =>
-                        setAccountForm((current) => ({ ...current, bankName: value }))
+                        setAccountForm((current) => ({
+                          ...current,
+                          bankName: value,
+                        }))
                       }
                       autoComplete="off"
                     />
@@ -966,7 +1197,10 @@ export function AgentWorkbenchScreen() {
                       placeholder="9 digits"
                       value={accountForm.routingNumber}
                       onChangeText={(value) =>
-                        setAccountForm((current) => ({ ...current, routingNumber: value }))
+                        setAccountForm((current) => ({
+                          ...current,
+                          routingNumber: value,
+                        }))
                       }
                       keyboardType="number-pad"
                       autoComplete="off"
@@ -976,7 +1210,10 @@ export function AgentWorkbenchScreen() {
                       placeholder="Account number"
                       value={accountForm.accountNumber}
                       onChangeText={(value) =>
-                        setAccountForm((current) => ({ ...current, accountNumber: value }))
+                        setAccountForm((current) => ({
+                          ...current,
+                          accountNumber: value,
+                        }))
                       }
                       keyboardType="number-pad"
                       autoComplete="off"
@@ -986,17 +1223,28 @@ export function AgentWorkbenchScreen() {
 
                 {resolvedAccountName ? (
                   <View style={styles.successBox}>
-                    <FontAwesome6 name="circle-check" size={16} color={tokens.colors.success} />
-                    <Text style={styles.successText}>{resolvedAccountName}</Text>
+                    <FontAwesome6
+                      name="circle-check"
+                      size={16}
+                      color={tokens.colors.success}
+                    />
+                    <Text style={styles.successText}>
+                      {resolvedAccountName}
+                    </Text>
                   </View>
                 ) : null}
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Note for finance (optional)</Text>
+                  <Text style={styles.fieldLabel}>
+                    Note for finance (optional)
+                  </Text>
                   <TextInput
                     value={accountForm.payoutNotes}
                     onChangeText={(value) =>
-                      setAccountForm((current) => ({ ...current, payoutNotes: value }))
+                      setAccountForm((current) => ({
+                        ...current,
+                        payoutNotes: value,
+                      }))
                     }
                     style={styles.textArea}
                     placeholder="Anything finance should know"
@@ -1021,14 +1269,22 @@ export function AgentWorkbenchScreen() {
                   <View
                     style={[
                       styles.toggleIndicator,
-                      accountForm.setAsDefault ? styles.toggleIndicatorActive : null,
+                      accountForm.setAsDefault
+                        ? styles.toggleIndicatorActive
+                        : null,
                     ]}
                   >
                     {accountForm.setAsDefault ? (
-                      <FontAwesome6 name="check" size={12} color={tokens.colors.inkDeep} />
+                      <FontAwesome6
+                        name="check"
+                        size={12}
+                        color={tokens.colors.inkDeep}
+                      />
                     ) : null}
                   </View>
-                  <Text style={styles.toggleTitle}>Use as default payout method</Text>
+                  <Text style={styles.toggleTitle}>
+                    Use as default payout method
+                  </Text>
                 </Pressable>
 
                 <AuthButton
@@ -1058,6 +1314,11 @@ export function AgentWorkbenchScreen() {
           <View style={styles.modalSheetWrap}>
             <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
               <View style={styles.modalHandle} />
+              {error ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {error}
+                </Text>
+              ) : null}
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Request payout</Text>
                 <Pressable
@@ -1066,7 +1327,11 @@ export function AgentWorkbenchScreen() {
                   accessibilityLabel="Close"
                   onPress={() => setPayoutModalOpen(false)}
                 >
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="xmark"
+                    size={18}
+                    color={tokens.colors.ink}
+                  />
                 </Pressable>
               </View>
               <Text style={styles.modalSubtitle}>
@@ -1082,13 +1347,19 @@ export function AgentWorkbenchScreen() {
                   <View style={styles.balanceRow}>
                     <Text style={styles.balanceLabel}>Available now</Text>
                     <Text style={styles.balanceValue}>
-                      {formatMoney(dashboard?.summary.availableCommissionCents ?? 0, activeCurrencyCode)}
+                      {formatMoney(
+                        dashboard?.summary.availableCommissionCents ?? 0,
+                        activeCurrencyCode,
+                      )}
                     </Text>
                   </View>
                   <View style={styles.balanceRow}>
                     <Text style={styles.balanceLabel}>Minimum payout</Text>
                     <Text style={styles.balanceValue}>
-                      {formatMoney(dashboard?.summary.minimumPayoutCents ?? 0, activeCurrencyCode)}
+                      {formatMoney(
+                        dashboard?.summary.minimumPayoutCents ?? 0,
+                        activeCurrencyCode,
+                      )}
                     </Text>
                   </View>
                 </View>
@@ -1096,14 +1367,17 @@ export function AgentWorkbenchScreen() {
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>Send to</Text>
                   <View style={styles.chipWrap}>
-                    {activePayoutAccounts.map((account) => {
+                    {matchingPayoutAccounts.map((account) => {
                       const active = payoutForm.payoutAccountId === account.id;
                       return (
                         <Pressable
                           key={account.id}
                           accessibilityRole="button"
                           accessibilityState={{ selected: active }}
-                          style={[styles.chip, active ? styles.chipActive : null]}
+                          style={[
+                            styles.chip,
+                            active ? styles.chipActive : null,
+                          ]}
                           onPress={() =>
                             setPayoutForm((current) => ({
                               ...current,
@@ -1111,7 +1385,12 @@ export function AgentWorkbenchScreen() {
                             }))
                           }
                         >
-                          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                          <Text
+                            style={[
+                              styles.chipText,
+                              active ? styles.chipTextActive : null,
+                            ]}
+                          >
                             {account.destinationLabel || account.bankName}
                           </Text>
                         </Pressable>
@@ -1121,11 +1400,16 @@ export function AgentWorkbenchScreen() {
                 </View>
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Note for finance (optional)</Text>
+                  <Text style={styles.fieldLabel}>
+                    Note for finance (optional)
+                  </Text>
                   <TextInput
                     value={payoutForm.agentNote}
                     onChangeText={(value) =>
-                      setPayoutForm((current) => ({ ...current, agentNote: value }))
+                      setPayoutForm((current) => ({
+                        ...current,
+                        agentNote: value,
+                      }))
                     }
                     style={styles.textArea}
                     placeholder="Anything finance should know"
@@ -1193,8 +1477,16 @@ function usePulse() {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -1226,7 +1518,10 @@ function SkeletonChips() {
   return (
     <View style={styles.chipRow}>
       {[0, 1, 2].map((index) => (
-        <Animated.View key={index} style={[styles.chip, styles.skeletonBlock, { opacity, width: 96 }]} />
+        <Animated.View
+          key={index}
+          style={[styles.chip, styles.skeletonBlock, { opacity, width: 96 }]}
+        />
       ))}
     </View>
   );

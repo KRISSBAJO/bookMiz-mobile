@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -36,7 +37,10 @@ import type {
   MarketplaceRequestTemplate,
 } from "@/src/lib/api/types";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
-import { formatMarketplaceDistance, formatMarketplacePrice } from "@/src/lib/marketplace-display";
+import {
+  formatMarketplaceDistance,
+  formatMarketplacePrice,
+} from "@/src/lib/marketplace-display";
 import {
   buildIntakeResponses,
   buildRequestDescription,
@@ -50,6 +54,7 @@ import {
 } from "@/src/lib/service-request-utils";
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
+import { useSavedDraft } from "@/src/lib/use-saved-draft";
 
 const quoteFilters = [
   { id: "ALL", label: "All" },
@@ -125,7 +130,8 @@ const fallbackTemplates: MarketplaceRequestTemplate[] = [
     id: "fallback-massage",
     name: "Massage",
     slug: "massage",
-    shortDescription: "At-home or in-studio wellness sessions with clear timing.",
+    shortDescription:
+      "At-home or in-studio wellness sessions with clear timing.",
     description: "At-home or in-studio wellness sessions with clear timing.",
     serviceModel: "LOCAL",
     suggestedSearchRadiusMiles: 12,
@@ -203,7 +209,8 @@ function messageSenderLabel(
 ) {
   const isRequester =
     message.senderRole === "REQUESTER" ||
-    (!!conversation.requesterEmail && message.senderEmail === conversation.requesterEmail);
+    (!!conversation.requesterEmail &&
+      message.senderEmail === conversation.requesterEmail);
 
   return isRequester ? "You" : message.senderName;
 }
@@ -219,7 +226,11 @@ function getInitials(value: string) {
 
 export function WorkbenchScreen() {
   const session = useSession();
-  return session.activePersona === "agent" ? <AgentWorkbenchScreen /> : <CustomerWorkbenchScreen />;
+  return session.activePersona === "agent" ? (
+    <AgentWorkbenchScreen />
+  ) : (
+    <CustomerWorkbenchScreen />
+  );
 }
 
 function CustomerWorkbenchScreen() {
@@ -233,41 +244,118 @@ function CustomerWorkbenchScreen() {
 
   const [templates, setTemplates] = useState<MarketplaceRequestTemplate[]>([]);
   const [requests, setRequests] = useState<CustomerQuoteRequest[]>([]);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
+    null,
+  );
+  const [selectedConversationId, setSelectedConversationId] = useState<
+    string | null
+  >(null);
   const [filter, setFilter] = useState<QuoteFilterId>("ALL");
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<ComposerStepId>("request");
   const [templateId, setTemplateId] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [description, setDescription] = useState("");
-  const [city, setCity] = useState(session.profile?.city ?? session.user?.city ?? "");
-  const [stateCode, setStateCode] = useState(session.profile?.stateCode ?? session.user?.stateCode ?? "");
+  const [city, setCity] = useState(
+    session.profile?.city ?? session.user?.city ?? "",
+  );
+  const [stateCode, setStateCode] = useState(
+    session.profile?.stateCode ?? session.user?.stateCode ?? "",
+  );
   const [line1, setLine1] = useState("");
   const [line2, setLine2] = useState("");
   const [countyName, setCountyName] = useState("");
   const [postalCode, setPostalCode] = useState("");
-  const [countryCode, setCountryCode] = useState(session.profile?.countryCode ?? "US");
+  const [countryCode, setCountryCode] = useState(
+    session.profile?.countryCode ?? "US",
+  );
   const [searchRadiusMiles, setSearchRadiusMiles] = useState("15");
   const [desiredDate, setDesiredDate] = useState("");
   const [desiredWindowStart, setDesiredWindowStart] = useState("");
   const [desiredWindowEnd, setDesiredWindowEnd] = useState("");
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
-  const [contactPhone, setContactPhone] = useState(session.profile?.phone ?? "");
-  const [requestedChannels, setRequestedChannels] = useState<AppointmentChannel[]>([]);
-  const [intakeAnswers, setIntakeAnswers] = useState<ServiceRequestIntakeAnswerMap>({});
-  const [requestedDocumentLabels, setRequestedDocumentLabels] = useState<string[]>([]);
-  const [activePicker, setActivePicker] = useState<null | { field: PickerField; mode: "date" | "time" }>(
-    null,
+  const [currencyCode, setCurrencyCode] = useState("USD");
+  const restoringTemplate = useRef<string | null>(null);
+  const [contactPhone, setContactPhone] = useState(
+    session.profile?.phone ?? "",
   );
+  const [requestedChannels, setRequestedChannels] = useState<
+    AppointmentChannel[]
+  >([]);
+  const [intakeAnswers, setIntakeAnswers] =
+    useState<ServiceRequestIntakeAnswerMap>({});
+  const [requestedDocumentLabels, setRequestedDocumentLabels] = useState<
+    string[]
+  >([]);
+  const [activePicker, setActivePicker] = useState<null | {
+    field: PickerField;
+    mode: "date" | "time";
+  }>(null);
   const [pickerDraftValue, setPickerDraftValue] = useState(new Date());
-  const [messageDraft, setMessageDraft] = useState("");
+  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [chatOpen, setChatOpen] = useState(false);
+  const workspaceGeneration = useRef(0);
+  const workspaceLoading = useRef(false);
+  const chatScroll = useRef<ScrollView>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [acceptingMatchId, setAcceptingMatchId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { draftError, clearDraft } = useSavedDraft(
+    session.user ? `${session.user.id}_request` : null,
+    {
+      serviceName,
+      description,
+      city,
+      stateCode,
+      countryCode,
+      line1,
+      line2,
+      countyName,
+      postalCode,
+      desiredDate,
+      desiredWindowStart,
+      desiredWindowEnd,
+      budgetMin,
+      budgetMax,
+      currencyCode,
+      contactPhone,
+      requestedChannels,
+      intakeAnswers,
+      requestedDocumentLabels,
+      templateId,
+      searchRadiusMiles,
+    },
+    (draft) => {
+      if (params.service) return;
+      restoringTemplate.current = draft.templateId || null;
+      setTemplateId(draft.templateId || "");
+      setCurrencyCode(draft.currencyCode || "USD");
+      setServiceName(draft.serviceName || "");
+      setDescription(draft.description || "");
+      setCity(draft.city || "");
+      setStateCode(draft.stateCode || "");
+      setCountryCode(draft.countryCode || "US");
+      setLine1(draft.line1 || "");
+      setLine2(draft.line2 || "");
+      setCountyName(draft.countyName || "");
+      setPostalCode(draft.postalCode || "");
+      setDesiredDate(draft.desiredDate || "");
+      setDesiredWindowStart(draft.desiredWindowStart || "");
+      setDesiredWindowEnd(draft.desiredWindowEnd || "");
+      setBudgetMin(draft.budgetMin || "");
+      setBudgetMax(draft.budgetMax || "");
+      setContactPhone(draft.contactPhone || "");
+      setRequestedChannels(draft.requestedChannels || []);
+      setIntakeAnswers(draft.intakeAnswers || {});
+      setRequestedDocumentLabels(draft.requestedDocumentLabels || []);
+      setSearchRadiusMiles(draft.searchRadiusMiles || "15");
+    },
+  );
 
   useEffect(() => {
     if (params.service) {
@@ -279,52 +367,76 @@ function CustomerWorkbenchScreen() {
     }
   }, [params.city, params.description, params.service]);
 
-  const loadWorkspace = useCallback(async () => {
-    if (!session.user) {
-      return;
-    }
+  const loadWorkspace = useCallback(
+    async (silent = false) => {
+      if (!session.user) {
+        return;
+      }
+      if (silent && workspaceLoading.current) return;
+      workspaceLoading.current = true;
 
-    try {
-      setError(null);
-      setIsLoading(true);
+      const generation = ++workspaceGeneration.current;
+      try {
+        if (!silent) {
+          setError(null);
+          setIsLoading(true);
+        }
 
-      const [nextTemplates, nextRequests] = await Promise.all([
-        listMarketplaceRequestTemplates({ serviceModel: "LOCAL" }),
-        listCustomerQuoteRequests({
-          requesterUserId: session.user.id,
-          requesterEmail: session.user.email,
-          status: filter === "ALL" ? undefined : filter,
-        }),
-      ]);
+        const [nextTemplates, nextRequests] = await Promise.all([
+          listMarketplaceRequestTemplates({ serviceModel: "LOCAL" }),
+          listCustomerQuoteRequests({
+            requesterUserId: session.user.id,
+            requesterEmail: session.user.email,
+            status: filter === "ALL" ? undefined : filter,
+          }),
+        ]);
 
-      setTemplates(nextTemplates);
-      setRequests(nextRequests);
-      setSelectedRequestId((current) =>
-        current && nextRequests.some((request) => request.id === current)
-          ? current
-          : nextRequests[0]?.id ?? null,
-      );
-    } catch (nextError) {
-      const message = getFriendlyApiError(
-        nextError,
-        "We could not load your customer requests.",
-      );
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filter, session.user]);
+        if (generation !== workspaceGeneration.current) return;
+        setTemplates(nextTemplates);
+        setRequests(nextRequests);
+        setSelectedRequestId((current) =>
+          current && nextRequests.some((request) => request.id === current)
+            ? current
+            : (nextRequests[0]?.id ?? null),
+        );
+      } catch (nextError) {
+        const message = getFriendlyApiError(
+          nextError,
+          "We could not load your customer requests.",
+        );
+        if (!silent && generation === workspaceGeneration.current)
+          setError(message);
+      } finally {
+        if (generation === workspaceGeneration.current) {
+          setIsLoading(false);
+          workspaceLoading.current = false;
+        }
+      }
+    },
+    [filter, session.user],
+  );
 
   useFocusEffect(
     useCallback(() => {
       void loadWorkspace();
+      const timer = setInterval(() => {
+        if (AppState.currentState === "active") void loadWorkspace(true);
+      }, 5000);
+      return () => {
+        clearInterval(timer);
+        workspaceGeneration.current += 1;
+        workspaceLoading.current = false;
+      };
     }, [loadWorkspace]),
   );
 
   const requestTemplates = templates.length > 0 ? templates : fallbackTemplates;
 
   const selectedRequest = useMemo(
-    () => requests.find((request) => request.id === selectedRequestId) ?? requests[0] ?? null,
+    () =>
+      requests.find((request) => request.id === selectedRequestId) ??
+      requests[0] ??
+      null,
     [requests, selectedRequestId],
   );
 
@@ -350,9 +462,20 @@ function CustomerWorkbenchScreen() {
       ) ?? null,
     [selectedConversationId, selectedRequest],
   );
+  const messageDraft = selectedConversation
+    ? (messageDrafts[selectedConversation.id] ?? "")
+    : "";
+  const setMessageDraft = (value: string) => {
+    if (selectedConversation)
+      setMessageDrafts((current) => ({
+        ...current,
+        [selectedConversation.id]: value,
+      }));
+  };
 
   const activeTemplate = useMemo(
-    () => requestTemplates.find((template) => template.id === templateId) ?? null,
+    () =>
+      requestTemplates.find((template) => template.id === templateId) ?? null,
     [requestTemplates, templateId],
   );
 
@@ -390,15 +513,25 @@ function CustomerWorkbenchScreen() {
     if (!activeTemplate) {
       return;
     }
+    if (restoringTemplate.current === activeTemplate.id) {
+      restoringTemplate.current = null;
+      return;
+    }
 
     setServiceName(activeTemplate.name);
     setBudgetMin(
-      activeTemplate.defaultBudgetMinCents ? String(activeTemplate.defaultBudgetMinCents / 100) : "",
+      activeTemplate.defaultBudgetMinCents
+        ? String(activeTemplate.defaultBudgetMinCents / 100)
+        : "",
     );
     setBudgetMax(
-      activeTemplate.defaultBudgetMaxCents ? String(activeTemplate.defaultBudgetMaxCents / 100) : "",
+      activeTemplate.defaultBudgetMaxCents
+        ? String(activeTemplate.defaultBudgetMaxCents / 100)
+        : "",
     );
-    setSearchRadiusMiles(String(activeTemplate.suggestedSearchRadiusMiles ?? 15));
+    setSearchRadiusMiles(
+      String(activeTemplate.suggestedSearchRadiusMiles ?? 15),
+    );
     setRequestedDocumentLabels(activeTemplate.checklistItems ?? []);
     setRequestedChannels(
       normalizeRequestedChannels(
@@ -408,7 +541,7 @@ function CustomerWorkbenchScreen() {
       ),
     );
     setIntakeAnswers({});
-  }, [activeTemplate]);
+  }, [activeTemplate?.id]);
 
   const updateIntakeAnswer = useCallback(
     (fieldId: string, value: ServiceRequestIntakeAnswerMap[string]) => {
@@ -435,15 +568,6 @@ function CustomerWorkbenchScreen() {
         : [...current, label],
     );
   }, []);
-
-  const canSubmitRequest = useMemo(
-    () =>
-      serviceName.trim().length >= 3 &&
-      description.trim().length >= 12 &&
-      city.trim().length >= 2 &&
-      countryCode.trim().length >= 2,
-    [city, countryCode, description, serviceName],
-  );
 
   const canContinueFromRequest = useMemo(() => {
     if (!(serviceName.trim().length >= 3 && description.trim().length >= 12)) {
@@ -497,6 +621,36 @@ function CustomerWorkbenchScreen() {
     () => city.trim().length >= 2 && countryCode.trim().length >= 2,
     [city, countryCode],
   );
+  const validBudget = (value: string) =>
+    !value.trim() ||
+    (/^\d+(\.\d{1,2})?$/.test(value.trim()) &&
+      Number(value) >= 0 &&
+      Number(value) <= 10000000);
+  const budgetValid =
+    validBudget(budgetMin) &&
+    validBudget(budgetMax) &&
+    (!budgetMin.trim() ||
+      !budgetMax.trim() ||
+      Number(budgetMin) <= Number(budgetMax));
+  const timeWindowValid =
+    (!desiredWindowStart && !desiredWindowEnd) ||
+    Boolean(
+      desiredWindowStart &&
+      desiredWindowEnd &&
+      desiredWindowStart < desiredWindowEnd,
+    );
+  const dateValid =
+    !desiredDate ||
+    (/^\d{4}-\d{2}-\d{2}$/.test(desiredDate) &&
+      new Date(`${desiredDate}T23:59:59`).getTime() >= Date.now());
+  const canSubmitRequest =
+    canContinueFromRequest &&
+    canContinueFromLocation &&
+    budgetValid &&
+    timeWindowValid &&
+    dateValid &&
+    /^[A-Za-z]{2}$/.test(countryCode.trim()) &&
+    /^[A-Z]{3}$/.test(currencyCode);
 
   const resetComposer = useCallback(() => {
     setComposerStep("request");
@@ -530,17 +684,14 @@ function CustomerWorkbenchScreen() {
     session.user?.stateCode,
   ]);
 
-  const openComposer = useCallback(
-    (nextTemplateId?: string) => {
-      if (nextTemplateId) {
-        setTemplateId(nextTemplateId);
-      }
+  const openComposer = useCallback((nextTemplateId?: string) => {
+    if (nextTemplateId) {
+      setTemplateId(nextTemplateId);
+    }
 
-      setComposerStep("request");
-      setComposerOpen(true);
-    },
-    [],
-  );
+    setComposerStep("request");
+    setComposerOpen(true);
+  }, []);
 
   const closeComposer = useCallback(() => {
     setComposerOpen(false);
@@ -554,7 +705,8 @@ function CustomerWorkbenchScreen() {
         return desiredDate ? new Date(`${desiredDate}T12:00:00`) : new Date();
       }
 
-      const source = field === "desiredWindowStart" ? desiredWindowStart : desiredWindowEnd;
+      const source =
+        field === "desiredWindowStart" ? desiredWindowStart : desiredWindowEnd;
 
       if (!source) {
         return new Date();
@@ -568,22 +720,25 @@ function CustomerWorkbenchScreen() {
     [desiredDate, desiredWindowEnd, desiredWindowStart],
   );
 
-  const applyPickerValue = useCallback((field: PickerField, selectedValue: Date) => {
-    if (field === "desiredDate") {
-      setDesiredDate(selectedValue.toISOString().slice(0, 10));
-      return;
-    }
+  const applyPickerValue = useCallback(
+    (field: PickerField, selectedValue: Date) => {
+      if (field === "desiredDate") {
+        setDesiredDate(selectedValue.toISOString().slice(0, 10));
+        return;
+      }
 
-    const hours = String(selectedValue.getHours()).padStart(2, "0");
-    const minutes = String(selectedValue.getMinutes()).padStart(2, "0");
-    const timeValue = `${hours}:${minutes}`;
+      const hours = String(selectedValue.getHours()).padStart(2, "0");
+      const minutes = String(selectedValue.getMinutes()).padStart(2, "0");
+      const timeValue = `${hours}:${minutes}`;
 
-    if (field === "desiredWindowStart") {
-      setDesiredWindowStart(timeValue);
-    } else {
-      setDesiredWindowEnd(timeValue);
-    }
-  }, []);
+      if (field === "desiredWindowStart") {
+        setDesiredWindowStart(timeValue);
+      } else {
+        setDesiredWindowEnd(timeValue);
+      }
+    },
+    [],
+  );
 
   const openPicker = useCallback(
     (field: PickerField, mode: "date" | "time") => {
@@ -633,6 +788,9 @@ function CustomerWorkbenchScreen() {
 
   const handleCreateRequest = useCallback(async () => {
     if (!session.user || !canSubmitRequest) {
+      setError(
+        "Check required answers, location, date, time window, and budget range before sending.",
+      );
       return;
     }
 
@@ -642,9 +800,11 @@ function CustomerWorkbenchScreen() {
 
       await createServiceRequest({
         requesterUserId: session.user.id,
-        requesterName: `${session.user.firstName} ${session.user.lastName}`.trim(),
+        requesterName:
+          `${session.user.firstName} ${session.user.lastName}`.trim(),
         requesterEmail: session.user.email,
-        requesterPhone: contactPhone.trim() || session.profile?.phone || undefined,
+        requesterPhone:
+          contactPhone.trim() || session.profile?.phone || undefined,
         requestedServiceName: serviceName.trim(),
         requestedCategoryName: activeTemplate?.businessCategory?.name,
         description: buildRequestDescription({
@@ -652,7 +812,9 @@ function CustomerWorkbenchScreen() {
           serviceModel: effectiveServiceModel,
           requestedChannels: normalizedRequestedChannels,
           searchAddress:
-            [line1, line2, city, stateCode, postalCode].filter(Boolean).join(", ") || undefined,
+            [line1, line2, city, stateCode, postalCode]
+              .filter(Boolean)
+              .join(", ") || undefined,
           city,
           stateCode,
           countryCode,
@@ -674,12 +836,20 @@ function CustomerWorkbenchScreen() {
         desiredDate: desiredDate.trim() || undefined,
         desiredWindowStart: desiredWindowStart.trim() || undefined,
         desiredWindowEnd: desiredWindowEnd.trim() || undefined,
-        budgetMinCents: budgetMin.trim() ? Math.round(Number(budgetMin) * 100) : undefined,
-        budgetMaxCents: budgetMax.trim() ? Math.round(Number(budgetMax) * 100) : undefined,
-        searchRadiusMiles: searchRadiusMiles.trim() ? Number(searchRadiusMiles) : undefined,
+        currencyCode,
+        budgetMinCents: budgetMin.trim()
+          ? Math.round(Number(budgetMin) * 100)
+          : undefined,
+        budgetMaxCents: budgetMax.trim()
+          ? Math.round(Number(budgetMax) * 100)
+          : undefined,
+        searchRadiusMiles: searchRadiusMiles.trim()
+          ? Number(searchRadiusMiles)
+          : undefined,
         notificationStrategy: "AUTO_NOTIFY_ALL",
       });
 
+      await clearDraft().catch(() => {});
       closeComposer();
       resetComposer();
       await loadWorkspace();
@@ -695,6 +865,7 @@ function CustomerWorkbenchScreen() {
   }, [
     activeTemplate,
     budgetMax,
+    currencyCode,
     budgetMin,
     canSubmitRequest,
     city,
@@ -723,27 +894,51 @@ function CustomerWorkbenchScreen() {
   ]);
 
   const handleSendMessage = useCallback(async () => {
-    if (!selectedRequest || !selectedConversation || !messageDraft.trim()) {
+    if (
+      !selectedRequest ||
+      !selectedConversation ||
+      !messageDraft.trim() ||
+      isSendingMessage
+    ) {
       return;
     }
 
     try {
       setError(null);
       setIsSendingMessage(true);
-      await sendRequesterQuoteMessage(selectedRequest.id, selectedConversation.id, {
-        requesterUserId: session.user?.id,
-        requesterEmail: session.user?.email,
-        content: messageDraft.trim(),
-      });
-      setMessageDraft("");
-      await loadWorkspace();
+      await sendRequesterQuoteMessage(
+        selectedRequest.id,
+        selectedConversation.id,
+        {
+          requesterUserId: session.user?.id,
+          requesterEmail: session.user?.email,
+          content: messageDraft.trim(),
+        },
+      );
+      setMessageDrafts((current) =>
+        current[selectedConversation.id] === messageDraft
+          ? { ...current, [selectedConversation.id]: "" }
+          : current,
+      );
+      await loadWorkspace(true);
     } catch (nextError) {
-      const message = getFriendlyApiError(nextError, "We could not send your message.");
+      const message = getFriendlyApiError(
+        nextError,
+        "We could not send your message.",
+      );
       setError(message);
     } finally {
       setIsSendingMessage(false);
     }
-  }, [loadWorkspace, messageDraft, selectedConversation, selectedRequest, session.user?.email, session.user?.id]);
+  }, [
+    loadWorkspace,
+    messageDraft,
+    selectedConversation,
+    selectedRequest,
+    session.user?.email,
+    session.user?.id,
+    isSendingMessage,
+  ]);
 
   const handleAcceptMatch = useCallback(
     async (matchId: string) => {
@@ -772,40 +967,49 @@ function CustomerWorkbenchScreen() {
     [loadWorkspace, selectedRequest, session.user?.email, session.user?.id],
   );
 
-  const composerStepIndex = composerSteps.findIndex((step) => step.id === composerStep);
+  const composerStepIndex = composerSteps.findIndex(
+    (step) => step.id === composerStep,
+  );
   const reviewRows = [
     { label: "Service", value: serviceName.trim() || "Not set yet" },
     { label: "Template", value: activeTemplate?.name ?? "Custom request" },
     {
       label: "Location",
       value:
-        [city.trim(), stateCode.trim().toUpperCase()].filter(Boolean).join(", ") ||
-        "Location not added yet",
+        [city.trim(), stateCode.trim().toUpperCase()]
+          .filter(Boolean)
+          .join(", ") || "Location not added yet",
     },
     {
       label: "Timing",
       value:
         [
           desiredDate.trim() ? formatDateLabel(desiredDate.trim()) : "",
-          desiredWindowStart.trim() ? formatTimeLabel(desiredWindowStart.trim()) : "",
-          desiredWindowEnd.trim() ? formatTimeLabel(desiredWindowEnd.trim()) : "",
+          desiredWindowStart.trim()
+            ? formatTimeLabel(desiredWindowStart.trim())
+            : "",
+          desiredWindowEnd.trim()
+            ? formatTimeLabel(desiredWindowEnd.trim())
+            : "",
         ]
           .filter(Boolean)
-          .join(" · ") ||
-        "Flexible timing",
+          .join(" · ") || "Flexible timing",
     },
     {
       label: "Budget",
       value:
         budgetMin.trim() || budgetMax.trim()
-          ? `${budgetMin.trim() ? `$${budgetMin.trim()}` : "Open"} - ${
-              budgetMax.trim() ? `$${budgetMax.trim()}` : "Open"
+          ? `${budgetMin.trim() ? `${currencyCode} ${budgetMin.trim()}` : "Open"} - ${
+              budgetMax.trim() ? `${currencyCode} ${budgetMax.trim()}` : "Open"
             }`
           : "Open budget",
     },
     {
       label: "Delivery",
-      value: formatRequestedChannels(normalizedRequestedChannels, effectiveServiceModel),
+      value: formatRequestedChannels(
+        normalizedRequestedChannels,
+        effectiveServiceModel,
+      ),
     },
   ];
 
@@ -846,7 +1050,16 @@ function CustomerWorkbenchScreen() {
         onRefresh={() => void loadWorkspace()}
       >
         {!showEmpty ? (
-          <AuthButton label="Start a request" icon="plus" onPress={() => openComposer()} />
+          <AuthButton
+            label="Start a request"
+            icon="plus"
+            onPress={() => openComposer()}
+          />
+        ) : null}
+        {draftError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {draftError}
+          </Text>
         ) : null}
 
         {error && !composerOpen ? (
@@ -854,7 +1067,10 @@ function CustomerWorkbenchScreen() {
             <Text style={styles.errorText} accessibilityRole="alert">
               {error}
             </Text>
-            <Pressable onPress={() => void loadWorkspace()} accessibilityRole="button">
+            <Pressable
+              onPress={() => void loadWorkspace()}
+              accessibilityRole="button"
+            >
               <Text style={styles.errorRetry}>Try again</Text>
             </Pressable>
           </View>
@@ -876,7 +1092,12 @@ function CustomerWorkbenchScreen() {
                 style={[styles.chip, isActive ? styles.chipActive : null]}
                 onPress={() => setFilter(item.id)}
               >
-                <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    isActive ? styles.chipTextActive : null,
+                  ]}
+                >
                   {item.label}
                 </Text>
               </Pressable>
@@ -889,7 +1110,9 @@ function CustomerWorkbenchScreen() {
         {showEmpty ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>
-              {filter === "ALL" ? "No requests yet" : `No ${quoteFilters.find((item) => item.id === filter)?.label.toLowerCase()} requests`}
+              {filter === "ALL"
+                ? "No requests yet"
+                : `No ${quoteFilters.find((item) => item.id === filter)?.label.toLowerCase()} requests`}
             </Text>
             <Text style={styles.emptyBody}>
               Tell us what you need and nearby providers send you quotes.
@@ -907,7 +1130,9 @@ function CustomerWorkbenchScreen() {
           <View style={styles.list}>
             {requests.map((request) => {
               const isActive = request.id === selectedRequest?.id;
-              const date = request.desiredDate ? new Date(request.desiredDate) : null;
+              const date = request.desiredDate
+                ? new Date(request.desiredDate)
+                : null;
               const hasDate = !!date && !Number.isNaN(date.getTime());
               return (
                 <Pressable
@@ -921,12 +1146,18 @@ function CustomerWorkbenchScreen() {
                     {hasDate && date ? (
                       <>
                         <Text style={styles.dateTileDay}>
-                          {date.toLocaleDateString(undefined, { month: "short" })}
+                          {date.toLocaleDateString(undefined, {
+                            month: "short",
+                          })}
                         </Text>
                         <Text style={styles.dateTileNum}>{date.getDate()}</Text>
                       </>
                     ) : (
-                      <FontAwesome6 name="calendar-days" size={18} color={tokens.colors.muted} />
+                      <FontAwesome6
+                        name="calendar-days"
+                        size={18}
+                        color={tokens.colors.muted}
+                      />
                     )}
                   </View>
                   <View style={styles.rowBody}>
@@ -935,7 +1166,8 @@ function CustomerWorkbenchScreen() {
                     </Text>
                     <Text style={styles.rowMeta} numberOfLines={1}>
                       {request.city}
-                      {request.stateCode ? `, ${request.stateCode}` : ""} · {request.matches.length}{" "}
+                      {request.stateCode ? `, ${request.stateCode}` : ""} ·{" "}
+                      {request.matches.length}{" "}
                       {request.matches.length === 1 ? "match" : "matches"}
                     </Text>
                   </View>
@@ -958,30 +1190,37 @@ function CustomerWorkbenchScreen() {
               subtitle={[
                 formatDateLabel(selectedRequest.desiredDate),
                 selectedRequest.budgetMinCents || selectedRequest.budgetMaxCents
-                  ? `${formatMarketplacePrice(selectedRequest.budgetMinCents)} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents)}`
+                  ? `${formatMarketplacePrice(selectedRequest.budgetMinCents, null, selectedRequest.currencyCode || "USD")} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents, null, selectedRequest.currencyCode || "USD")}`
                   : "Open budget",
                 `${selectedRequest.conversations.length} ${selectedRequest.conversations.length === 1 ? "chat" : "chats"}`,
               ].join(" · ")}
             />
             {selectedRequest.description ? (
-              <Text style={styles.description}>{selectedRequest.description}</Text>
+              <Text style={styles.description}>
+                {selectedRequest.description}
+              </Text>
             ) : null}
 
             {selectedRequest.matches.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No matches yet</Text>
-                <Text style={styles.emptyBody}>Providers near you have been notified.</Text>
+                <Text style={styles.emptyBody}>
+                  Providers near you have been notified.
+                </Text>
               </View>
             ) : (
               selectedRequest.matches.map((match) => {
                 const conversation = selectedRequest.conversations.find(
                   (item) => item.quoteMatchId === match.id,
                 );
-                const isAccepted = selectedRequest.acceptedQuoteMatchId === match.id;
+                const isAccepted =
+                  selectedRequest.acceptedQuoteMatchId === match.id;
                 const metaParts = [
                   match.matchedService?.name ?? match.provider.businessCategory,
                   formatMarketplaceDistance(match.distanceMiles),
-                  match.provider.averageRating ? `★ ${match.provider.averageRating.toFixed(1)}` : null,
+                  match.provider.averageRating
+                    ? `★ ${match.provider.averageRating.toFixed(1)}`
+                    : null,
                 ].filter(Boolean);
 
                 return (
@@ -1003,10 +1242,16 @@ function CustomerWorkbenchScreen() {
                       <View style={styles.matchEnd}>
                         <Text style={styles.matchPrice}>
                           {match.matchedService?.priceCents
-                            ? formatMarketplacePrice(match.matchedService.priceCents)
+                            ? formatMarketplacePrice(
+                                match.matchedService.priceCents,
+                                null,
+                                match.provider.currencyCode || "USD",
+                              )
                             : "Quote"}
                         </Text>
-                        <StatusPill status={isAccepted ? "ACCEPTED" : match.status} />
+                        <StatusPill
+                          status={isAccepted ? "ACCEPTED" : match.status}
+                        />
                       </View>
                     </View>
 
@@ -1016,10 +1261,15 @@ function CustomerWorkbenchScreen() {
                           label="Open chat"
                           variant="secondary"
                           style={styles.matchButton}
-                          onPress={() => setSelectedConversationId(conversation.id)}
+                          onPress={() => {
+                            setSelectedConversationId(conversation.id);
+                            setChatOpen(true);
+                          }}
                         />
                       ) : (
-                        <Text style={styles.matchHint}>Waiting for a reply</Text>
+                        <Text style={styles.matchHint}>
+                          Waiting for a reply
+                        </Text>
                       )}
                       {!isAccepted ? (
                         <AuthButton
@@ -1037,94 +1287,168 @@ function CustomerWorkbenchScreen() {
             )}
 
             {selectedConversation ? (
-              <View style={styles.chatCard}>
-                {selectedRequest.conversations.length > 1 ? (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.chatRailScroll}
-                    contentContainerStyle={styles.chatRail}
+              <Modal
+                visible={chatOpen}
+                animationType="slide"
+                onRequestClose={() => setChatOpen(false)}
+              >
+                <SafeAreaView
+                  style={{ flex: 1, backgroundColor: tokens.colors.panel }}
+                >
+                  <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === "ios" ? "padding" : undefined}
                   >
-                    {selectedRequest.conversations.map((conversation) => {
-                      const isActive = conversation.id === selectedConversation.id;
-                      return (
-                        <Pressable
-                          key={conversation.id}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: isActive }}
-                          style={[styles.chip, isActive ? styles.chipActive : null]}
-                          onPress={() => setSelectedConversationId(conversation.id)}
+                    <View style={{ padding: 16, gap: 12 }}>
+                      <AuthButton
+                        label="Close chat"
+                        variant="secondary"
+                        onPress={() => setChatOpen(false)}
+                      />
+                      {error ? (
+                        <Text
+                          accessibilityRole="alert"
+                          style={styles.errorText}
                         >
-                          <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
-                            {conversation.provider?.displayName ?? "Provider"}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                ) : (
-                  <Text style={styles.chatTitle}>
-                    {selectedConversation.provider?.displayName ?? "Conversation"}
-                  </Text>
-                )}
+                          {error}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <ScrollView
+                      ref={chatScroll}
+                      keyboardShouldPersistTaps="handled"
+                      onContentSizeChange={() =>
+                        chatScroll.current?.scrollToEnd({ animated: true })
+                      }
+                      contentContainerStyle={styles.chatCard}
+                    >
+                      {selectedRequest.conversations.length > 1 ? (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.chatRailScroll}
+                          contentContainerStyle={styles.chatRail}
+                        >
+                          {selectedRequest.conversations.map((conversation) => {
+                            const isActive =
+                              conversation.id === selectedConversation.id;
+                            return (
+                              <Pressable
+                                key={conversation.id}
+                                accessibilityRole="tab"
+                                accessibilityState={{ selected: isActive }}
+                                style={[
+                                  styles.chip,
+                                  isActive ? styles.chipActive : null,
+                                ]}
+                                onPress={() =>
+                                  setSelectedConversationId(conversation.id)
+                                }
+                              >
+                                <Text
+                                  style={[
+                                    styles.chipText,
+                                    isActive ? styles.chipTextActive : null,
+                                  ]}
+                                >
+                                  {conversation.provider?.displayName ??
+                                    "Provider"}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </ScrollView>
+                      ) : (
+                        <Text style={styles.chatTitle}>
+                          {selectedConversation.provider?.displayName ??
+                            "Conversation"}
+                        </Text>
+                      )}
 
-                <View style={styles.messages}>
-                  {selectedConversation.messages.length === 0 ? (
-                    <Text style={styles.matchHint}>No messages yet. Say hello.</Text>
-                  ) : null}
-                  {selectedConversation.messages.map((message) => {
-                    const isRequester = messageSenderLabel(message, selectedConversation) === "You";
-                    return (
-                      <View
-                        key={message.id}
-                        style={[styles.messageRow, isRequester ? styles.messageRowRight : null]}
-                      >
-                        <View
-                          style={[
-                            styles.bubble,
-                            isRequester ? styles.bubbleOwn : styles.bubbleOther,
-                          ]}
-                        >
-                          {!isRequester ? (
-                            <Text style={styles.bubbleSender}>{message.senderName}</Text>
-                          ) : null}
-                          <Text style={[styles.bubbleText, isRequester ? styles.bubbleTextOwn : null]}>
-                            {message.content}
+                      <View style={styles.messages}>
+                        {selectedConversation.messages.length === 0 ? (
+                          <Text style={styles.matchHint}>
+                            No messages yet. Say hello.
                           </Text>
-                        </View>
+                        ) : null}
+                        {selectedConversation.messages.map((message) => {
+                          const isRequester =
+                            messageSenderLabel(
+                              message,
+                              selectedConversation,
+                            ) === "You";
+                          return (
+                            <View
+                              key={message.id}
+                              style={[
+                                styles.messageRow,
+                                isRequester ? styles.messageRowRight : null,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.bubble,
+                                  isRequester
+                                    ? styles.bubbleOwn
+                                    : styles.bubbleOther,
+                                ]}
+                              >
+                                {!isRequester ? (
+                                  <Text style={styles.bubbleSender}>
+                                    {message.senderName}
+                                  </Text>
+                                ) : null}
+                                <Text
+                                  style={[
+                                    styles.bubbleText,
+                                    isRequester ? styles.bubbleTextOwn : null,
+                                  ]}
+                                >
+                                  {message.content}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })}
                       </View>
-                    );
-                  })}
-                </View>
 
-                <View style={styles.replyBar}>
-                  <TextInput
-                    value={messageDraft}
-                    onChangeText={setMessageDraft}
-                    placeholder="Write a reply"
-                    placeholderTextColor={tokens.colors.muted}
-                    style={styles.replyInput}
-                    multiline
-                    accessibilityLabel="Reply"
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Send"
-                    disabled={isSendingMessage || !messageDraft.trim()}
-                    style={[
-                      styles.sendButton,
-                      isSendingMessage || !messageDraft.trim() ? styles.sendButtonDisabled : null,
-                    ]}
-                    onPress={() => void handleSendMessage()}
-                  >
-                    {isSendingMessage ? (
-                      <ActivityIndicator color="#ffffff" />
-                    ) : (
-                      <FontAwesome6 name="paper-plane" size={16} color="#ffffff" />
-                    )}
-                  </Pressable>
-                </View>
-              </View>
+                      <View style={styles.replyBar}>
+                        <TextInput
+                          value={messageDraft}
+                          onChangeText={setMessageDraft}
+                          placeholder="Write a reply"
+                          placeholderTextColor={tokens.colors.muted}
+                          style={styles.replyInput}
+                          multiline
+                          accessibilityLabel="Reply"
+                        />
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Send"
+                          disabled={isSendingMessage || !messageDraft.trim()}
+                          style={[
+                            styles.sendButton,
+                            isSendingMessage || !messageDraft.trim()
+                              ? styles.sendButtonDisabled
+                              : null,
+                          ]}
+                          onPress={() => void handleSendMessage()}
+                        >
+                          {isSendingMessage ? (
+                            <ActivityIndicator color="#ffffff" />
+                          ) : (
+                            <FontAwesome6
+                              name="paper-plane"
+                              size={16}
+                              color="#ffffff"
+                            />
+                          )}
+                        </Pressable>
+                      </View>
+                    </ScrollView>
+                  </KeyboardAvoidingView>
+                </SafeAreaView>
+              </Modal>
             ) : null}
           </View>
         ) : null}
@@ -1154,7 +1478,8 @@ function CustomerWorkbenchScreen() {
                   <View style={styles.modalHeaderCopy}>
                     <Text style={styles.modalTitle}>New request</Text>
                     <Text style={styles.stepCaption}>
-                      Step {stepNumber} of {composerSteps.length} · {composerSteps[composerStepIndex]?.label}
+                      Step {stepNumber} of {composerSteps.length} ·{" "}
+                      {composerSteps[composerStepIndex]?.label}
                     </Text>
                   </View>
                   <Pressable
@@ -1163,10 +1488,17 @@ function CustomerWorkbenchScreen() {
                     accessibilityLabel="Close"
                     onPress={closeComposer}
                   >
-                    <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                    <FontAwesome6
+                      name="xmark"
+                      size={18}
+                      color={tokens.colors.ink}
+                    />
                   </Pressable>
                 </View>
-                <View style={styles.progressRow} accessibilityRole="progressbar">
+                <View
+                  style={styles.progressRow}
+                  accessibilityRole="progressbar"
+                >
                   {composerSteps.map((step, index) => (
                     <Pressable
                       key={step.id}
@@ -1175,7 +1507,9 @@ function CustomerWorkbenchScreen() {
                       hitSlop={10}
                       style={[
                         styles.progressSegment,
-                        index <= composerStepIndex ? styles.progressSegmentDone : null,
+                        index <= composerStepIndex
+                          ? styles.progressSegmentDone
+                          : null,
                       ]}
                       onPress={() => {
                         if (index <= composerStepIndex) {
@@ -1209,10 +1543,18 @@ function CustomerWorkbenchScreen() {
                                 key={template.id}
                                 accessibilityRole="button"
                                 accessibilityState={{ selected: isActive }}
-                                style={[styles.chip, isActive ? styles.chipActive : null]}
+                                style={[
+                                  styles.chip,
+                                  isActive ? styles.chipActive : null,
+                                ]}
                                 onPress={() => setTemplateId(template.id)}
                               >
-                                <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                                <Text
+                                  style={[
+                                    styles.chipText,
+                                    isActive ? styles.chipTextActive : null,
+                                  ]}
+                                >
                                   {template.name}
                                 </Text>
                               </Pressable>
@@ -1220,10 +1562,33 @@ function CustomerWorkbenchScreen() {
                           })}
                         </ScrollView>
                         {activeTemplate?.shortDescription ? (
-                          <Text style={styles.fieldHelp}>{activeTemplate.shortDescription}</Text>
+                          <Text style={styles.fieldHelp}>
+                            {activeTemplate.shortDescription}
+                          </Text>
                         ) : null}
                       </View>
 
+                      <AuthField
+                        label="Budget currency"
+                        placeholder="USD, NGN, GBP…"
+                        value={currencyCode}
+                        onChangeText={(value) =>
+                          setCurrencyCode(value.toUpperCase().slice(0, 3))
+                        }
+                        autoComplete="off"
+                      />
+                      {!budgetValid ||
+                      !timeWindowValid ||
+                      !dateValid ||
+                      !/^[A-Z]{3}$/.test(currencyCode) ? (
+                        <Text
+                          accessibilityRole="alert"
+                          style={styles.errorText}
+                        >
+                          Use a valid budget range and 3-letter currency, a
+                          current/future date, and a start/end time in order.
+                        </Text>
+                      ) : null}
                       <AuthField
                         label="Service"
                         placeholder="What do you need?"
@@ -1265,7 +1630,8 @@ function CustomerWorkbenchScreen() {
 
                       <View style={styles.fieldGroup}>
                         <Text style={styles.fieldLabel}>
-                          Preferred date{activeTemplate?.requiresDate ? "" : " (optional)"}
+                          Preferred date
+                          {activeTemplate?.requiresDate ? "" : " (optional)"}
                         </Text>
                         <Pressable
                           style={styles.pickerField}
@@ -1273,11 +1639,22 @@ function CustomerWorkbenchScreen() {
                           onPress={() => openPicker("desiredDate", "date")}
                         >
                           <Text
-                            style={[styles.pickerFieldText, !desiredDate ? styles.pickerFieldPlaceholder : null]}
+                            style={[
+                              styles.pickerFieldText,
+                              !desiredDate
+                                ? styles.pickerFieldPlaceholder
+                                : null,
+                            ]}
                           >
-                            {desiredDate ? formatDateLabel(desiredDate) : "Choose a date"}
+                            {desiredDate
+                              ? formatDateLabel(desiredDate)
+                              : "Choose a date"}
                           </Text>
-                          <FontAwesome6 name="calendar-days" size={16} color={tokens.colors.muted} />
+                          <FontAwesome6
+                            name="calendar-days"
+                            size={16}
+                            color={tokens.colors.muted}
+                          />
                         </Pressable>
                       </View>
 
@@ -1286,17 +1663,27 @@ function CustomerWorkbenchScreen() {
                         <Pressable
                           style={styles.pickerField}
                           accessibilityRole="button"
-                          onPress={() => openPicker("desiredWindowStart", "time")}
+                          onPress={() =>
+                            openPicker("desiredWindowStart", "time")
+                          }
                         >
                           <Text
                             style={[
                               styles.pickerFieldText,
-                              !desiredWindowStart ? styles.pickerFieldPlaceholder : null,
+                              !desiredWindowStart
+                                ? styles.pickerFieldPlaceholder
+                                : null,
                             ]}
                           >
-                            {desiredWindowStart ? formatTimeLabel(desiredWindowStart) : "Any time"}
+                            {desiredWindowStart
+                              ? formatTimeLabel(desiredWindowStart)
+                              : "Any time"}
                           </Text>
-                          <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
+                          <FontAwesome6
+                            name="clock"
+                            size={16}
+                            color={tokens.colors.muted}
+                          />
                         </Pressable>
                       </View>
 
@@ -1310,20 +1697,32 @@ function CustomerWorkbenchScreen() {
                           <Text
                             style={[
                               styles.pickerFieldText,
-                              !desiredWindowEnd ? styles.pickerFieldPlaceholder : null,
+                              !desiredWindowEnd
+                                ? styles.pickerFieldPlaceholder
+                                : null,
                             ]}
                           >
-                            {desiredWindowEnd ? formatTimeLabel(desiredWindowEnd) : "Any time"}
+                            {desiredWindowEnd
+                              ? formatTimeLabel(desiredWindowEnd)
+                              : "Any time"}
                           </Text>
-                          <FontAwesome6 name="clock" size={16} color={tokens.colors.muted} />
+                          <FontAwesome6
+                            name="clock"
+                            size={16}
+                            color={tokens.colors.muted}
+                          />
                         </Pressable>
                       </View>
 
                       {intakeFields.map((field) => {
                         const fieldValue = intakeAnswers[field.id];
-                        const stringValue = typeof fieldValue === "string" ? fieldValue : "";
+                        const stringValue =
+                          typeof fieldValue === "string" ? fieldValue : "";
                         const selectedValues = Array.isArray(fieldValue)
-                          ? fieldValue.filter((value): value is string => typeof value === "string")
+                          ? fieldValue.filter(
+                              (value): value is string =>
+                                typeof value === "string",
+                            )
                           : [];
                         const label = `${field.label}${field.required ? "" : " (optional)"}`;
 
@@ -1333,7 +1732,9 @@ function CustomerWorkbenchScreen() {
                               <Text style={styles.fieldLabel}>{label}</Text>
                               <TextInput
                                 value={stringValue}
-                                onChangeText={(value) => updateIntakeAnswer(field.id, value)}
+                                onChangeText={(value) =>
+                                  updateIntakeAnswer(field.id, value)
+                                }
                                 placeholder={field.placeholder ?? ""}
                                 placeholderTextColor={tokens.colors.muted}
                                 style={styles.textArea}
@@ -1341,23 +1742,47 @@ function CustomerWorkbenchScreen() {
                                 textAlignVertical="top"
                                 accessibilityLabel={field.label}
                               />
-                              {field.helpText ? <Text style={styles.fieldHelp}>{field.helpText}</Text> : null}
+                              {field.helpText ? (
+                                <Text style={styles.fieldHelp}>
+                                  {field.helpText}
+                                </Text>
+                              ) : null}
                             </View>
                           );
                         }
 
-                        if (field.type === "SELECT" || field.type === "MULTI_SELECT" || field.type === "BOOLEAN") {
+                        if (
+                          field.type === "SELECT" ||
+                          field.type === "MULTI_SELECT" ||
+                          field.type === "BOOLEAN"
+                        ) {
                           const options =
                             field.type === "BOOLEAN"
                               ? [
-                                  { key: "true", label: "Yes", selected: fieldValue === true, onPress: () => updateIntakeAnswer(field.id, true) },
-                                  { key: "false", label: "No", selected: fieldValue === false, onPress: () => updateIntakeAnswer(field.id, false) },
+                                  {
+                                    key: "true",
+                                    label: "Yes",
+                                    selected: fieldValue === true,
+                                    onPress: () =>
+                                      updateIntakeAnswer(field.id, true),
+                                  },
+                                  {
+                                    key: "false",
+                                    label: "No",
+                                    selected: fieldValue === false,
+                                    onPress: () =>
+                                      updateIntakeAnswer(field.id, false),
+                                  },
                                 ]
                               : (field.options ?? []).map((option) => {
                                   const selected =
-                                    field.type === "SELECT" ? stringValue === option : selectedValues.includes(option);
+                                    field.type === "SELECT"
+                                      ? stringValue === option
+                                      : selectedValues.includes(option);
                                   const nextValues = selected
-                                    ? selectedValues.filter((value) => value !== option)
+                                    ? selectedValues.filter(
+                                        (value) => value !== option,
+                                      )
                                     : [...selectedValues, option];
                                   return {
                                     key: option,
@@ -1366,7 +1791,10 @@ function CustomerWorkbenchScreen() {
                                     onPress: () =>
                                       field.type === "SELECT"
                                         ? updateIntakeAnswer(field.id, option)
-                                        : updateIntakeAnswer(field.id, nextValues),
+                                        : updateIntakeAnswer(
+                                            field.id,
+                                            nextValues,
+                                          ),
                                   };
                                 });
 
@@ -1378,19 +1806,35 @@ function CustomerWorkbenchScreen() {
                                   <Pressable
                                     key={option.key}
                                     accessibilityRole="button"
-                                    accessibilityState={{ selected: option.selected }}
-                                    style={[styles.chip, option.selected ? styles.chipActive : null]}
+                                    accessibilityState={{
+                                      selected: option.selected,
+                                    }}
+                                    style={[
+                                      styles.chip,
+                                      option.selected
+                                        ? styles.chipActive
+                                        : null,
+                                    ]}
                                     onPress={option.onPress}
                                   >
                                     <Text
-                                      style={[styles.chipText, option.selected ? styles.chipTextActive : null]}
+                                      style={[
+                                        styles.chipText,
+                                        option.selected
+                                          ? styles.chipTextActive
+                                          : null,
+                                      ]}
                                     >
                                       {option.label}
                                     </Text>
                                   </Pressable>
                                 ))}
                               </View>
-                              {field.helpText ? <Text style={styles.fieldHelp}>{field.helpText}</Text> : null}
+                              {field.helpText ? (
+                                <Text style={styles.fieldHelp}>
+                                  {field.helpText}
+                                </Text>
+                              ) : null}
                             </View>
                           );
                         }
@@ -1401,7 +1845,9 @@ function CustomerWorkbenchScreen() {
                             label={label}
                             placeholder={field.placeholder ?? ""}
                             value={stringValue}
-                            onChangeText={(value) => updateIntakeAnswer(field.id, value)}
+                            onChangeText={(value) =>
+                              updateIntakeAnswer(field.id, value)
+                            }
                             helperText={field.helpText ?? undefined}
                             autoComplete="off"
                           />
@@ -1413,16 +1859,25 @@ function CustomerWorkbenchScreen() {
                           <Text style={styles.fieldLabel}>What to include</Text>
                           <View style={styles.chipWrap}>
                             {activeTemplate.checklistItems.map((item) => {
-                              const selected = requestedDocumentLabels.includes(item);
+                              const selected =
+                                requestedDocumentLabels.includes(item);
                               return (
                                 <Pressable
                                   key={item}
                                   accessibilityRole="button"
                                   accessibilityState={{ selected }}
-                                  style={[styles.chip, selected ? styles.chipActive : null]}
+                                  style={[
+                                    styles.chip,
+                                    selected ? styles.chipActive : null,
+                                  ]}
                                   onPress={() => toggleRequestedDocument(item)}
                                 >
-                                  <Text style={[styles.chipText, selected ? styles.chipTextActive : null]}>
+                                  <Text
+                                    style={[
+                                      styles.chipText,
+                                      selected ? styles.chipTextActive : null,
+                                    ]}
+                                  >
                                     {item}
                                   </Text>
                                 </Pressable>
@@ -1437,24 +1892,46 @@ function CustomerWorkbenchScreen() {
                   {composerStep === "location" ? (
                     <>
                       <View style={styles.fieldGroup}>
-                        <Text style={styles.fieldLabel}>How you want it done</Text>
+                        <Text style={styles.fieldLabel}>
+                          How you want it done
+                        </Text>
                         {channelOptions.map((option) => {
-                          const selected = normalizedRequestedChannels.includes(option.value);
+                          const selected = normalizedRequestedChannels.includes(
+                            option.value,
+                          );
                           return (
                             <Pressable
                               key={option.value}
                               accessibilityRole="checkbox"
                               accessibilityState={{ checked: selected }}
-                              style={[styles.optionRow, selected ? styles.optionRowActive : null]}
-                              onPress={() => toggleRequestedChannel(option.value)}
+                              style={[
+                                styles.optionRow,
+                                selected ? styles.optionRowActive : null,
+                              ]}
+                              onPress={() =>
+                                toggleRequestedChannel(option.value)
+                              }
                             >
                               <View style={styles.rowBody}>
-                                <Text style={styles.optionTitle}>{option.label}</Text>
-                                <Text style={styles.rowMeta}>{option.description}</Text>
+                                <Text style={styles.optionTitle}>
+                                  {option.label}
+                                </Text>
+                                <Text style={styles.rowMeta}>
+                                  {option.description}
+                                </Text>
                               </View>
-                              <View style={[styles.check, selected ? styles.checkActive : null]}>
+                              <View
+                                style={[
+                                  styles.check,
+                                  selected ? styles.checkActive : null,
+                                ]}
+                              >
                                 {selected ? (
-                                  <FontAwesome6 name="check" size={12} color={tokens.colors.inkDeep} />
+                                  <FontAwesome6
+                                    name="check"
+                                    size={12}
+                                    color={tokens.colors.inkDeep}
+                                  />
                                 ) : null}
                               </View>
                             </Pressable>
@@ -1462,7 +1939,13 @@ function CustomerWorkbenchScreen() {
                         })}
                       </View>
 
-                      <AuthField label="City" placeholder="City" value={city} onChangeText={setCity} autoComplete="off" />
+                      <AuthField
+                        label="City"
+                        placeholder="City"
+                        value={city}
+                        onChangeText={setCity}
+                        autoComplete="off"
+                      />
                       <View style={styles.fieldGroup}>
                         <Text style={styles.fieldLabel}>State</Text>
                         <View style={styles.inputShell}>
@@ -1543,7 +2026,10 @@ function CustomerWorkbenchScreen() {
                         {reviewRows.map((row, index) => (
                           <View
                             key={row.label}
-                            style={[styles.reviewRow, index > 0 ? styles.reviewRowBorder : null]}
+                            style={[
+                              styles.reviewRow,
+                              index > 0 ? styles.reviewRowBorder : null,
+                            ]}
                           >
                             <Text style={styles.reviewLabel}>{row.label}</Text>
                             <Text style={styles.reviewValue}>{row.value}</Text>
@@ -1552,31 +2038,41 @@ function CustomerWorkbenchScreen() {
                       </View>
 
                       <View style={styles.fieldGroup}>
-                        <Text style={styles.fieldLabel}>What providers see</Text>
+                        <Text style={styles.fieldLabel}>
+                          What providers see
+                        </Text>
                         <Text style={styles.description}>
                           {buildRequestDescription({
                             description,
                             serviceModel: effectiveServiceModel,
                             requestedChannels: normalizedRequestedChannels,
                             searchAddress:
-                              [line1, line2, city, stateCode, postalCode].filter(Boolean).join(", ") ||
-                              undefined,
+                              [line1, line2, city, stateCode, postalCode]
+                                .filter(Boolean)
+                                .join(", ") || undefined,
                             city,
                             stateCode,
                             countryCode,
                             searchRadiusMiles,
                             intakeResponses,
                             requestedDocumentLabels,
-                          }) || "Add a short description so providers know what you need."}
+                          }) ||
+                            "Add a short description so providers know what you need."}
                         </Text>
                       </View>
 
                       {requestedDocumentLabels.length ? (
                         <View style={styles.fieldGroup}>
-                          <Text style={styles.fieldLabel}>You will include</Text>
+                          <Text style={styles.fieldLabel}>
+                            You will include
+                          </Text>
                           {requestedDocumentLabels.map((item) => (
                             <View key={item} style={styles.checklistRow}>
-                              <FontAwesome6 name="check" size={14} color={tokens.colors.success} />
+                              <FontAwesome6
+                                name="check"
+                                size={14}
+                                color={tokens.colors.success}
+                              />
                               <Text style={styles.checklistText}>{item}</Text>
                             </View>
                           ))}
@@ -1602,7 +2098,12 @@ function CustomerWorkbenchScreen() {
                     onPress={
                       composerStep === "request"
                         ? closeComposer
-                        : () => setComposerStep(composerStep === "review" ? "location" : "request")
+                        : () =>
+                            setComposerStep(
+                              composerStep === "review"
+                                ? "location"
+                                : "request",
+                            )
                     }
                   />
                   {footerPrimary}
@@ -1646,7 +2147,11 @@ function CustomerWorkbenchScreen() {
                     accessibilityLabel="Close"
                     onPress={closePicker}
                   >
-                    <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                    <FontAwesome6
+                      name="xmark"
+                      size={18}
+                      color={tokens.colors.ink}
+                    />
                   </Pressable>
                 </View>
 
@@ -1674,7 +2179,11 @@ function CustomerWorkbenchScreen() {
                       style={styles.footerSecondary}
                       onPress={closePicker}
                     />
-                    <AuthButton label="Done" style={styles.footerPrimary} onPress={confirmPicker} />
+                    <AuthButton
+                      label="Done"
+                      style={styles.footerPrimary}
+                      onPress={confirmPicker}
+                    />
                   </View>
                 ) : null}
               </SafeAreaView>
@@ -1686,13 +2195,19 @@ function CustomerWorkbenchScreen() {
   );
 }
 
-function StatusPill({ status }: { status: CustomerQuoteRequest["status"] | string }) {
+function StatusPill({
+  status,
+}: {
+  status: CustomerQuoteRequest["status"] | string;
+}) {
   const tone =
     status === "MATCHED"
       ? styles.pillMatched
       : status === "ACCEPTED"
         ? styles.pillBooked
-        : status === "CANCELLED" || status === "EXPIRED" || status === "DECLINED"
+        : status === "CANCELLED" ||
+            status === "EXPIRED" ||
+            status === "DECLINED"
           ? styles.pillMuted
           : null;
   const textTone =
@@ -1700,13 +2215,18 @@ function StatusPill({ status }: { status: CustomerQuoteRequest["status"] | strin
       ? styles.pillTextMatched
       : status === "ACCEPTED"
         ? styles.pillTextBooked
-        : status === "CANCELLED" || status === "EXPIRED" || status === "DECLINED"
+        : status === "CANCELLED" ||
+            status === "EXPIRED" ||
+            status === "DECLINED"
           ? styles.pillTextMuted
           : null;
   const label =
     status === "ACCEPTED"
       ? "Booked"
-      : status === "OPEN" || status === "MATCHED" || status === "CANCELLED" || status === "EXPIRED"
+      : status === "OPEN" ||
+          status === "MATCHED" ||
+          status === "CANCELLED" ||
+          status === "EXPIRED"
         ? formatRequestStatus(status as CustomerQuoteRequest["status"])
         : status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ");
 
@@ -1723,8 +2243,16 @@ function SkeletonRows() {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();

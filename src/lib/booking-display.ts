@@ -1,4 +1,7 @@
-import type { BookingMeetingRecord, CustomerBookingRecord } from "@/src/lib/api/types";
+import type {
+  BookingMeetingRecord,
+  CustomerBookingRecord,
+} from "@/src/lib/api/types";
 
 export function formatBookingDateTime(value: string) {
   return new Date(value).toLocaleString(undefined, {
@@ -32,7 +35,9 @@ export function formatBookingMoney(amount: number, currency = "USD") {
   }).format(amount / 100);
 }
 
-export function formatMeetingProvider(provider: BookingMeetingRecord["provider"]) {
+export function formatMeetingProvider(
+  provider: BookingMeetingRecord["provider"],
+) {
   if (provider === "ZOOM") {
     return "Zoom";
   }
@@ -44,7 +49,9 @@ export function formatMeetingProvider(provider: BookingMeetingRecord["provider"]
   return "Video session";
 }
 
-export function hasActiveMeetingLink(meeting: BookingMeetingRecord | null | undefined) {
+export function hasActiveMeetingLink(
+  meeting: BookingMeetingRecord | null | undefined,
+) {
   return Boolean(meeting?.status === "ACTIVE" && meeting.joinUrl);
 }
 
@@ -61,12 +68,19 @@ export function formatSecureDocumentSize(sizeBytes: number) {
 }
 
 export function canCancelBooking(booking: CustomerBookingRecord) {
-  return ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(booking.status);
+  return (
+    ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(booking.status) &&
+    (!booking.customerPolicy ||
+      new Date(booking.customerPolicy.changeDeadline).getTime() >= Date.now())
+  );
 }
 
 export function canRescheduleBooking(booking: CustomerBookingRecord) {
   return (
     ["PENDING", "CONFIRMED"].includes(booking.status) &&
+    (!booking.customerPolicy ||
+      new Date(booking.customerPolicy.changeDeadline).getTime() >=
+        Date.now()) &&
     new Date(booking.startsAt).getTime() > Date.now()
   );
 }

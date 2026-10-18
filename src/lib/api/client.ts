@@ -13,18 +13,26 @@ type RequestOptions = RequestInit & {
   retryOnUnauthorized?: boolean;
 };
 
-type AuthTokenChangeHandler = (tokens: MobileAuthTokens | null) => void | Promise<void>;
+type AuthTokenChangeHandler = (
+  tokens: MobileAuthTokens | null,
+) => void | Promise<void>;
 
 let authTokens: MobileAuthTokens | null = null;
 let refreshPromise: Promise<AuthResponseData> | null = null;
 let authFailureHandler: (() => void | Promise<void>) | null = null;
 let authTokenChangeHandler: AuthTokenChangeHandler | null = null;
 let tokenPersistence: Promise<void> = Promise.resolve();
+let sessionGeneration = 0;
 
 export async function setAuthTokens(tokens: MobileAuthTokens | null) {
+  sessionGeneration += 1;
   authTokens = tokens;
   const handler = authTokenChangeHandler;
-  tokenPersistence = tokenPersistence.catch(() => {}).then(async () => { await handler?.(tokens); });
+  tokenPersistence = tokenPersistence
+    .catch(() => {})
+    .then(async () => {
+      await handler?.(tokens);
+    });
   await tokenPersistence;
 }
 
@@ -36,19 +44,21 @@ export function clearAuthTokens() {
   return setAuthTokens(null);
 }
 
-export function setAuthFailureHandler(handler: (() => void | Promise<void>) | null) {
+export function setAuthFailureHandler(
+  handler: (() => void | Promise<void>) | null,
+) {
   authFailureHandler = handler;
 }
 
-export function setAuthTokenChangeHandler(handler: AuthTokenChangeHandler | null) {
+export function setAuthTokenChangeHandler(
+  handler: AuthTokenChangeHandler | null,
+) {
   authTokenChangeHandler = handler;
 }
 
 async function parseResponse<T>(response: Response) {
   const payload = (await response.json().catch(() => null)) as
-    | ApiSuccessEnvelope<T>
-    | ApiErrorEnvelope
-    | null;
+    ApiSuccessEnvelope<T> | ApiErrorEnvelope | null;
 
   if (!response.ok) {
     if (__DEV__) {
@@ -63,8 +73,11 @@ async function parseResponse<T>(response: Response) {
         : "Something went wrong. Please try again.",
       {
         statusCode:
-          payload && "error" in payload ? payload.error.statusCode : response.status,
-        details: payload && "error" in payload ? payload.error.details : undefined,
+          payload && "error" in payload
+            ? payload.error.statusCode
+            : response.status,
+        details:
+          payload && "error" in payload ? payload.error.details : undefined,
       },
     );
   }
@@ -80,23 +93,36 @@ async function refreshSessionInternal() {
   if (!authTokens?.refreshToken) {
     await clearAuthTokens();
     await authFailureHandler?.();
-    throw new ApiRequestError("Your session has expired. Please sign in again.", {
-      statusCode: 401,
-    });
+    throw new ApiRequestError(
+      "Your session has expired. Please sign in again.",
+      {
+        statusCode: 401,
+      },
+    );
   }
 
   if (!refreshPromise) {
-    refreshPromise = requestWithTimeout(`${mobileEnv.identityApiUrl}/auth/mobile/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
+    const generation = sessionGeneration;
+    refreshPromise = requestWithTimeout(
+      `${mobileEnv.identityApiUrl}/auth/mobile/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          refreshToken: authTokens.refreshToken,
+        }),
       },
-      body: JSON.stringify({
-        refreshToken: authTokens.refreshToken,
-      }),
-    }, parseResponse<AuthResponseData>)
+      parseResponse<AuthResponseData>,
+    )
       .then(async (data) => {
+        if (generation !== sessionGeneration) {
+          throw new ApiRequestError("Your session changed. Please try again.", {
+            statusCode: 409,
+          });
+        }
         await setAuthTokens({
           accessToken: data.session.accessToken,
           refreshToken: data.session.refreshToken,
@@ -104,7 +130,11 @@ async function refreshSessionInternal() {
         return data;
       })
       .catch(async (error) => {
-        if (error instanceof ApiRequestError && [401, 403].includes(error.statusCode ?? 0)) {
+        if (
+          generation === sessionGeneration &&
+          error instanceof ApiRequestError &&
+          [401, 403].includes(error.statusCode ?? 0)
+        ) {
           await clearAuthTokens();
           await authFailureHandler?.();
         }
@@ -122,7 +152,12 @@ export async function requestJson<T>(
   url: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { auth = false, retryOnUnauthorized = auth, headers, ...init } = options;
+  const {
+    auth = false,
+    retryOnUnauthorized = auth,
+    headers,
+    ...init
+  } = options;
   const requestHeaders = new Headers(headers);
 
   if (!requestHeaders.has("Accept")) {
@@ -133,13 +168,18 @@ export async function requestJson<T>(
     requestHeaders.set("Authorization", `Bearer ${authTokens.accessToken}`);
   }
 
-  const result = await requestWithTimeout<{ data: T } | { unauthorized: true }>(url, {
-    ...init,
-    headers: requestHeaders,
-  }, async response => {
-    if (auth && retryOnUnauthorized && response.status === 401) return { unauthorized: true } as const;
-    return { data: await parseResponse<T>(response) };
-  });
+  const result = await requestWithTimeout<{ data: T } | { unauthorized: true }>(
+    url,
+    {
+      ...init,
+      headers: requestHeaders,
+    },
+    async (response) => {
+      if (auth && retryOnUnauthorized && response.status === 401)
+        return { unauthorized: true } as const;
+      return { data: await parseResponse<T>(response) };
+    },
+  );
   if ("data" in result) return result.data;
 
   await refreshSessionInternal();
@@ -152,8 +192,12 @@ export async function requestJson<T>(
     retryHeaders.set("Authorization", `Bearer ${authTokens.accessToken}`);
   }
 
-  return requestWithTimeout(url, {
-    ...init,
-    headers: retryHeaders,
-  }, parseResponse<T>);
+  return requestWithTimeout(
+    url,
+    {
+      ...init,
+      headers: retryHeaders,
+    },
+    parseResponse<T>,
+  );
 }

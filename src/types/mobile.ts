@@ -6,6 +6,7 @@ export type BookMizUser = {
   id: string;
   email: string;
   userType: string;
+  emailVerified?: boolean;
   firstName: string;
   lastName: string;
   city?: string | null;

@@ -14,6 +14,9 @@ export function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [showMfa, setShowMfa] = useState(false);
 
   if (session.isHydrating) {
     return null;
@@ -30,7 +33,10 @@ export function LoginScreen() {
       footer={
         <View style={styles.rowCenter}>
           <Text style={styles.helper}>New here? </Text>
-          <Pressable onPress={() => router.push("/signup")} accessibilityRole="link">
+          <Pressable
+            onPress={() => router.push("/signup")}
+            accessibilityRole="link"
+          >
             <Text style={styles.link}>Create an account</Text>
           </Pressable>
         </View>
@@ -52,12 +58,41 @@ export function LoginScreen() {
         secureTextEntry
         autoComplete="password"
         labelAccessory={
-          <Pressable onPress={() => router.push("/forgot-password")} accessibilityRole="link">
+          <Pressable
+            onPress={() => router.push("/forgot-password")}
+            accessibilityRole="link"
+          >
             <Text style={styles.inlineLink}>Forgot?</Text>
           </Pressable>
         }
       />
 
+      <AuthButton
+        label="Use authenticator or recovery code"
+        variant="secondary"
+        onPress={() => setShowMfa((current) => !current)}
+      />
+      {showMfa ||
+      /multi.factor|mfa|authenticator|recovery code/i.test(
+        session.authError || "",
+      ) ? (
+        <>
+          <AuthField
+            label="Authenticator code"
+            placeholder="6-digit code"
+            value={mfaCode}
+            onChangeText={setMfaCode}
+            keyboardType="number-pad"
+            autoComplete="one-time-code"
+          />
+          <AuthField
+            label="Recovery code instead"
+            placeholder="Optional recovery code"
+            value={recoveryCode}
+            onChangeText={setRecoveryCode}
+          />
+        </>
+      ) : null}
       {session.authError ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText} accessibilityRole="alert">
@@ -78,6 +113,10 @@ export function LoginScreen() {
               email: email.trim(),
               password,
               rememberMe: true,
+              mfaCode: mfaCode.trim() || undefined,
+              recoveryCode: mfaCode.trim()
+                ? undefined
+                : recoveryCode.trim() || undefined,
             });
             router.replace("/(tabs)");
           } catch {

@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { SessionProvider } from "@/src/store/session-context";
+import { PushNotificationBridge } from "@/src/components/PushNotificationBridge";
 import { fontAssets, tokens } from "@/src/theme/tokens";
 
 export { ErrorBoundary } from "expo-router";
@@ -45,6 +46,7 @@ export default function RootLayout() {
   return (
     <SessionProvider>
       <ThemeProvider value={navigationTheme}>
+        <PushNotificationBridge />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="welcome" />
           <Stack.Screen name="login" />
@@ -54,6 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="reset-password" />
           <Stack.Screen name="password-updated" />
           <Stack.Screen name="saved-providers" />
+          <Stack.Screen name="security" />
           <Stack.Screen name="appointments" />
           <Stack.Screen name="appointments/[bookingId]" />
           <Stack.Screen name="providers/[slug]" />

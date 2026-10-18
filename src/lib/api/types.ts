@@ -134,7 +134,8 @@ export type UpdateProfilePayload = Partial<{
   homeLongitude: number | null;
 }>;
 
-export type UpdateNotificationPreferencesPayload = Partial<NotificationPreferences>;
+export type UpdateNotificationPreferencesPayload =
+  Partial<NotificationPreferences>;
 
 export type ForgotPasswordPayload = {
   email: string;
@@ -151,11 +152,7 @@ export type MarketplaceServiceModel = "LOCAL" | "PROFESSIONAL" | "HYBRID";
 export type MarketplaceSearchServiceModel = "LOCAL" | "PROFESSIONAL";
 
 export type MarketplaceSort =
-  | "recommended"
-  | "rating"
-  | "price-low"
-  | "price-high"
-  | "distance";
+  "recommended" | "rating" | "price-low" | "price-high" | "distance";
 
 export type MarketplaceLocation = {
   id: string;
@@ -504,13 +501,13 @@ export type SecureDocumentRecord = {
 };
 
 export type CustomerBookingRecord = {
+  documentUploadToken?: string;
+  customerPolicy?: {
+    changeDeadline: string;
+    cancellationPolicy: string | null;
+  };
   id: string;
-  status:
-    | "PENDING"
-    | "CONFIRMED"
-    | "CHECKED_IN"
-    | "COMPLETED"
-    | "CANCELLED";
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "COMPLETED" | "CANCELLED";
   channel: "IN_PERSON" | "VIDEO" | "PHONE" | string;
   startsAt: string;
   endsAt: string;
@@ -587,8 +584,10 @@ export type PlatformAgentCommission = {
   payoutRequestId: string | null;
   countryCode: string;
   currencyCode: string;
-  sourceType: "SUBSCRIPTION" | "QUOTE_UNLOCK" | "MANUAL_ADJUSTMENT" | "REVERSAL";
-  status: "PENDING" | "AVAILABLE" | "REQUESTED" | "PAID" | "REVERSED" | "CANCELLED";
+  sourceType:
+    "SUBSCRIPTION" | "QUOTE_UNLOCK" | "MANUAL_ADJUSTMENT" | "REVERSAL";
+  status:
+    "PENDING" | "AVAILABLE" | "REQUESTED" | "PAID" | "REVERSED" | "CANCELLED";
   sourceId: string;
   grossAmountCents: number;
   commissionPercent: number;
@@ -665,6 +664,7 @@ export type PlatformPayoutAccountResolution = {
 
 export type AgentDashboard = {
   summary: {
+    currencyCode?: string;
     activeProviderCount: number;
     expiringAttributionCount: number;
     pendingCommissionCents: number;
@@ -674,6 +674,13 @@ export type AgentDashboard = {
     minimumPayoutCents: number;
   };
   payoutWorkspace: {
+    balancesByCurrency?: Array<{
+      currencyCode: string;
+      availableCommissionCents: number;
+      pendingCommissionCents: number;
+      requestedCommissionCents: number;
+      paidCommissionCents: number;
+    }>;
     defaultPayoutAccountId: string | null;
     operatingCountryCode: string;
     recommendedProcessor: "STRIPE" | "PAYSTACK" | "MANUAL";
@@ -687,6 +694,7 @@ export type AgentDashboard = {
 };
 
 export type AgentOperationsRequestSummary = {
+  currencyCode?: string;
   id: string;
   requesterName: string;
   requesterEmail: string | null;
@@ -734,7 +742,8 @@ export type AgentOperationsRequestDetail = AgentOperationsRequestSummary & {
   requesterUserId: string | null;
   customerId: string | null;
   requestedChannels: string[];
-  intakeResponses: Record<string, unknown> | Array<Record<string, unknown>> | null;
+  intakeResponses:
+    Record<string, unknown> | Array<Record<string, unknown>> | null;
   requestedDocumentLabels: string[];
   line1: string | null;
   line2: string | null;
@@ -889,6 +898,7 @@ export type CustomerQuoteConversation = {
 };
 
 export type CustomerQuoteRequest = {
+  currencyCode?: string;
   id: string;
   requesterUserId: string | null;
   requesterName: string;
@@ -934,6 +944,7 @@ export type CustomerQuoteRequest = {
       businessEmail: string | null;
       businessPhone: string | null;
       slug?: string;
+      currencyCode?: string;
       averageRating?: number;
       reviewCount?: number;
       businessCategory?: string | null;
@@ -964,6 +975,7 @@ export type CustomerQuoteRequest = {
 };
 
 export type CreateServiceRequestPayload = {
+  currencyCode?: string;
   customerId?: string;
   requesterUserId?: string;
   requesterName: string;
@@ -1013,6 +1025,7 @@ export type InboxNotification = {
 };
 
 export type InboxResponse = {
+  nextCursor?: string | null;
   unreadCount: number;
   items: InboxNotification[];
 };

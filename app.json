@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "BookMiz",
-    "slug": "bookmiz-customer-agent",
+    "slug": "bookmiz",
+    "owner": "gatherplus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/bookmiz/logo.png",
@@ -14,7 +15,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bookmiz.customeragent"
+      "bundleIdentifier": "com.anonymous.bookmiz",
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,6 +24,7 @@
         "backgroundColor": "#132849"
       },
       "package": "com.bookmiz.customeragent",
+      "versionCode": 1,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -31,10 +34,17 @@
     },
     "plugins": [
       "expo-router",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-document-picker",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": { "eas": { "projectId": "ca508477-5d3d-40ff-9f9c-6c0faae889bf" } },
+    "updates": {
+      "url": "https://u.expo.dev/ca508477-5d3d-40ff-9f9c-6c0faae889bf"
+    },
+    "runtimeVersion": { "policy": "fingerprint" }
   }
 }

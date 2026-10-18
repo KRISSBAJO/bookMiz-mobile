@@ -5,7 +5,7 @@ import { tokens } from "@/src/theme/tokens";
 
 type AuthFieldProps = {
   label: string;
-  placeholder: string;
+  placeholder?: string;
   value: string;
   onChangeText: (value: string) => void;
   keyboardType?: "default" | "email-address" | "number-pad";
@@ -14,7 +14,8 @@ type AuthFieldProps = {
   errorText?: string;
   /** Rendered to the right of the label, e.g. a "Forgot?" link. */
   labelAccessory?: ReactNode;
-  autoComplete?: "email" | "password" | "new-password" | "one-time-code" | "name" | "off";
+  autoComplete?:
+    "email" | "password" | "new-password" | "one-time-code" | "name" | "off";
 };
 
 export function AuthField({
@@ -51,7 +52,11 @@ export function AuthField({
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}
-          autoCapitalize={keyboardType === "email-address" || secureTextEntry ? "none" : "words"}
+          autoCapitalize={
+            keyboardType === "email-address" || secureTextEntry
+              ? "none"
+              : "words"
+          }
           autoComplete={autoComplete}
           secureTextEntry={secureTextEntry && !isVisible}
           onFocus={() => setIsFocused(true)}
@@ -70,7 +75,9 @@ export function AuthField({
         ) : null}
       </View>
       {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
-      {!errorText && helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+      {!errorText && helperText ? (
+        <Text style={styles.helperText}>{helperText}</Text>
+      ) : null}
     </View>
   );
 }

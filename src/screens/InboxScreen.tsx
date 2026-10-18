@@ -1,6 +1,16 @@
 import { useFocusEffect } from "expo-router/react-navigation";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  DeviceEventEmitter,
+  Linking,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { Screen } from "@/src/components/Screen";
 import { SectionHeader } from "@/src/components/SectionHeader";
@@ -8,6 +18,7 @@ import {
   listInboxNotifications,
   markAllInboxNotificationsRead,
   markInboxNotificationRead,
+  getInboxNotification,
 } from "@/src/lib/api/notifications";
 import type { InboxNotification } from "@/src/lib/api/types";
 import { tokens } from "@/src/theme/tokens";
@@ -26,7 +37,10 @@ function formatDateLabel(value: string) {
     date.getDate() === now.getDate();
 
   if (sameDay) {
-    return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return date.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -48,8 +62,16 @@ function SkeletonRows() {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -72,17 +94,41 @@ function SkeletonRows() {
 }
 
 export function InboxScreen() {
+  const { notificationId } = useLocalSearchParams<{
+    notificationId?: string;
+  }>();
+  const [opened, setOpened] = useState<InboxNotification | null>(null);
+  const cursorRef = useRef<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const loadingRef = useRef(false);
+  const [markingAll, setMarkingAll] = useState(false);
   const [notifications, setNotifications] = useState<InboxNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadInbox = useCallback(async () => {
+  const loadInbox = useCallback(async (append = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     try {
       setError(null);
       setIsLoading(true);
-      const inbox = await listInboxNotifications({ limit: 20 });
-      setNotifications(inbox.items);
+      const inbox = await listInboxNotifications({
+        limit: 20,
+        cursor: append ? (cursorRef.current ?? undefined) : undefined,
+      });
+      setNotifications((current) =>
+        append
+          ? [
+              ...current,
+              ...inbox.items.filter(
+                (item) => !current.some((existing) => existing.id === item.id),
+              ),
+            ]
+          : inbox.items,
+      );
+      cursorRef.current = inbox.nextCursor ?? null;
+      setHasMore(Boolean(inbox.nextCursor));
       setUnreadCount(inbox.unreadCount);
     } catch (nextError) {
       const message =
@@ -92,6 +138,7 @@ export function InboxScreen() {
       setError(message);
     } finally {
       setIsLoading(false);
+      loadingRef.current = false;
     }
   }, []);
 
@@ -102,24 +149,62 @@ export function InboxScreen() {
   );
 
   const handleMarkAllRead = useCallback(async () => {
-    await markAllInboxNotificationsRead();
-    await loadInbox();
-  }, [loadInbox]);
-
-  const handleMarkRead = useCallback(async (notificationId: string) => {
-    setNotifications((current) =>
-      current.map((item) =>
-        item.id === notificationId ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
-      ),
-    );
-    setUnreadCount((current) => Math.max(0, current - 1));
-
+    if (markingAll) return;
+    setMarkingAll(true);
     try {
-      await markInboxNotificationRead(notificationId);
-    } catch {
+      await markAllInboxNotificationsRead();
       await loadInbox();
+    } catch {
+      setError("Could not mark notifications as read. Please try again.");
+    } finally {
+      setMarkingAll(false);
     }
+  }, [loadInbox, markingAll]);
+  useEffect(() => {
+    const listener = DeviceEventEmitter.addListener("bookmiz-inbox-updated", () => { void loadInbox(); });
+    return () => listener.remove();
   }, [loadInbox]);
+
+  const handleMarkRead = useCallback(
+    async (notificationId: string) => {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notificationId
+            ? { ...item, readAt: item.readAt ?? new Date().toISOString() }
+            : item,
+        ),
+      );
+      setUnreadCount((current) => Math.max(0, current - 1));
+
+      try {
+        await markInboxNotificationRead(notificationId);
+      } catch {
+        await loadInbox();
+      }
+    },
+    [loadInbox],
+  );
+
+  useEffect(() => {
+    if (!notificationId) return;
+    let active = true;
+    void getInboxNotification(notificationId)
+      .then((item) => {
+        if (active) {
+          setOpened(item);
+          if (!item.readAt) void handleMarkRead(item.id);
+        }
+      })
+      .catch(() => {
+        if (active)
+          setError(
+            "This notification is no longer available for your account.",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [notificationId]);
 
   return (
     <Screen
@@ -150,13 +235,25 @@ export function InboxScreen() {
                 key={notification.id}
                 accessibilityRole="button"
                 accessibilityLabel={`${notification.title}${unread ? ", unread" : ""}`}
-                style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-                onPress={() =>
-                  notification.readAt ? undefined : void handleMarkRead(notification.id)
-                }
+                style={({ pressed }) => [
+                  styles.row,
+                  pressed ? styles.rowPressed : null,
+                ]}
+                onPress={() => {
+                  setOpened(notification);
+                  if (!notification.readAt)
+                    void handleMarkRead(notification.id);
+                }}
               >
-                <View style={[styles.avatar, unread ? styles.avatarUnread : null]}>
-                  <Text style={[styles.avatarText, unread ? styles.avatarTextUnread : null]}>
+                <View
+                  style={[styles.avatar, unread ? styles.avatarUnread : null]}
+                >
+                  <Text
+                    style={[
+                      styles.avatarText,
+                      unread ? styles.avatarTextUnread : null,
+                    ]}
+                  >
                     {initialsFor(notification.title)}
                   </Text>
                 </View>
@@ -168,7 +265,9 @@ export function InboxScreen() {
                     >
                       {notification.title}
                     </Text>
-                    <Text style={styles.time}>{formatDateLabel(notification.createdAt)}</Text>
+                    <Text style={styles.time}>
+                      {formatDateLabel(notification.createdAt)}
+                    </Text>
                   </View>
                   <View style={styles.messageRow}>
                     <Text style={styles.message} numberOfLines={2}>
@@ -183,10 +282,63 @@ export function InboxScreen() {
         </View>
       ) : null}
 
+      {hasMore ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={isLoading}
+          onPress={() => void loadInbox(true)}
+        >
+          <Text style={styles.errorRetry}>Load older notifications</Text>
+        </Pressable>
+      ) : null}
+      <Modal
+        visible={Boolean(opened)}
+        animationType="slide"
+        onRequestClose={() => setOpened(null)}
+      >
+        <Screen title="Notification" showBack={false}>
+          <Pressable accessibilityRole="button" onPress={() => setOpened(null)}>
+            <Text style={styles.errorRetry}>Close</Text>
+          </Pressable>
+          <Text style={styles.title}>{opened?.title}</Text>
+          <Text selectable style={styles.message}>
+            {opened?.body}
+          </Text>
+          <Text style={styles.time}>
+            {opened ? new Date(opened.createdAt).toLocaleString() : ""}
+          </Text>
+          {opened?.actionUrl ? (
+            <Pressable
+              accessibilityRole="link"
+              onPress={async () => {
+                try {
+                  const url = new URL(
+                    opened.actionUrl!,
+                    "https://www.bookmiz.com",
+                  );
+                  if (
+                    url.protocol !== "https:" ||
+                    !["www.bookmiz.com", "bookmiz.com"].includes(url.hostname)
+                  )
+                    throw new Error("Unsupported notification link.");
+                  await Linking.openURL(url.toString());
+                } catch {
+                  setOpened(null);
+                  setError("Could not open this notification’s destination.");
+                }
+              }}
+            >
+              <Text style={styles.errorRetry}>View in BookMiz website</Text>
+            </Pressable>
+          ) : null}
+        </Screen>
+      </Modal>
       {!isLoading && notifications.length === 0 && !error ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No messages yet</Text>
-          <Text style={styles.emptyBody}>Replies to your requests and booking updates land here.</Text>
+          <Text style={styles.emptyBody}>
+            Replies to your requests and booking updates land here.
+          </Text>
         </View>
       ) : null}
 
@@ -195,7 +347,10 @@ export function InboxScreen() {
           <Text style={styles.errorText} accessibilityRole="alert">
             {error}
           </Text>
-          <Pressable onPress={() => void loadInbox()} accessibilityRole="button">
+          <Pressable
+            onPress={() => void loadInbox()}
+            accessibilityRole="button"
+          >
             <Text style={styles.errorRetry}>Try again</Text>
           </Pressable>
         </View>

@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -25,7 +26,11 @@ import {
   setAuthTokenChangeHandler,
   setAuthTokens,
 } from "@/src/lib/api/client";
-import { clearStoredTokens, loadStoredTokens, saveStoredTokens } from "@/src/lib/api/storage";
+import {
+  clearStoredTokens,
+  loadStoredTokens,
+  saveStoredTokens,
+} from "@/src/lib/api/storage";
 import type {
   AuthResponseData,
   LoginPayload,
@@ -34,7 +39,12 @@ import type {
   UpdateNotificationPreferencesPayload,
   UpdateProfilePayload,
 } from "@/src/lib/api/types";
-import type { BookMizSession, PersonaMode, SessionRole } from "@/src/types/mobile";
+import type {
+  BookMizSession,
+  PersonaMode,
+  SessionRole,
+} from "@/src/types/mobile";
+import { disablePush } from "@/src/lib/mobile-push";
 
 type SessionContextValue = BookMizSession & {
   profile: ProfileSettings | null;
@@ -64,7 +74,11 @@ function toSessionRoles(roles: string[]): SessionRole[] {
       nextRoles.add("CUSTOMER");
     }
 
-    if (role === "PLATFORM_AGENT" || role === "SUPER_ADMIN" || role === "AGENT") {
+    if (
+      role === "PLATFORM_AGENT" ||
+      role === "SUPER_ADMIN" ||
+      role === "AGENT"
+    ) {
       nextRoles.add("AGENT");
     }
   }
@@ -73,16 +87,15 @@ function toSessionRoles(roles: string[]): SessionRole[] {
 }
 
 function buildSessionUser(
-  user:
-    | {
-        id: string;
-        email: string;
-        userType: string;
-        firstName: string;
-        lastName: string;
-        roles: string[];
-      }
-    | null,
+  user: {
+    id: string;
+    email: string;
+    userType: string;
+    emailVerified?: boolean;
+    firstName: string;
+    lastName: string;
+    roles: string[];
+  } | null,
   profile: ProfileSettings | null,
 ) {
   if (!user) {
@@ -93,6 +106,7 @@ function buildSessionUser(
     id: user.id,
     email: user.email,
     userType: user.userType,
+    emailVerified: profile?.emailVerified ?? user.emailVerified ?? false,
     firstName: profile?.firstName ?? user.firstName,
     lastName: profile?.lastName ?? user.lastName,
     city: profile?.city ?? null,
@@ -102,30 +116,49 @@ function buildSessionUser(
 }
 
 export function SessionProvider({ children }: PropsWithChildren) {
+  const sessionGeneration = useRef(0);
   const [user, setUser] = useState<BookMizSession["user"]>(null);
   const [profile, setProfile] = useState<ProfileSettings | null>(null);
   const [activePersona, setActivePersona] = useState<PersonaMode>("customer");
   const [isHydrating, setIsHydrating] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const clearSessionState = useCallback(async (errorMessage?: string | null) => {
-    setUser(null);
-    setProfile(null);
-    setActivePersona("customer");
-    setAuthError(errorMessage ?? null);
-    try { await clearAuthTokens(); }
-    catch { setAuthError("Could not clear saved sign-in details. Please restart and sign out again."); }
-  }, []);
+  const clearSessionState = useCallback(
+    async (errorMessage?: string | null) => {
+      sessionGeneration.current += 1;
+      setUser(null);
+      setProfile(null);
+      setActivePersona("customer");
+      setAuthError(errorMessage ?? null);
+      try {
+        await clearAuthTokens();
+      } catch {
+        setAuthError(
+          "Could not clear saved sign-in details. Please restart and sign out again.",
+        );
+      }
+    },
+    [],
+  );
 
   const hydrateCurrentUser = useCallback(async () => {
+    const generation = sessionGeneration.current;
     const [auth, nextProfile] = await Promise.all([
       getCurrentAuth(),
       getProfileSettings(),
     ]);
 
+    if (generation !== sessionGeneration.current)
+      throw new ApiRequestError("Your session changed. Please try again.", {
+        statusCode: 409,
+      });
     setProfile(nextProfile);
     setUser(buildSessionUser(auth.user, nextProfile));
-    setActivePersona("customer");
+    setActivePersona((current) =>
+      current === "agent" && toSessionRoles(auth.user.roles).includes("AGENT")
+        ? "agent"
+        : "customer",
+    );
     setAuthError(null);
   }, []);
 
@@ -158,21 +191,32 @@ export function SessionProvider({ children }: PropsWithChildren) {
     let isActive = true;
 
     const bootstrap = async () => {
+      const generation = sessionGeneration.current;
       try {
-      const storedTokens = await loadStoredTokens();
+        const storedTokens = await loadStoredTokens();
+        if (generation !== sessionGeneration.current) return;
 
-      if (!storedTokens) {
-        if (isActive) {
-          setIsHydrating(false);
+        if (!storedTokens) {
+          if (isActive) {
+            setIsHydrating(false);
+          }
+          return;
         }
-        return;
-      }
 
-      await setAuthTokens(storedTokens);
+        await setAuthTokens(storedTokens);
+        if (generation !== sessionGeneration.current) return;
         await hydrateCurrentUser();
       } catch (error) {
-        if (error instanceof ApiRequestError && [401, 403].includes(error.statusCode ?? 0)) await clearSessionState();
-        else setAuthError("Could not connect. Your saved session is retained; try again when online.");
+        if (generation !== sessionGeneration.current) return;
+        if (
+          error instanceof ApiRequestError &&
+          [401, 403].includes(error.statusCode ?? 0)
+        )
+          await clearSessionState();
+        else if (generation === sessionGeneration.current)
+          setAuthError(
+            "Could not connect. Your saved session is retained; try again when online.",
+          );
       } finally {
         if (isActive) {
           setIsHydrating(false);
@@ -189,14 +233,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const applyAuthResponse = useCallback(
     async (auth: AuthResponseData) => {
+      const generation = ++sessionGeneration.current;
       await setAuthTokens({
         accessToken: auth.session.accessToken,
         refreshToken: auth.session.refreshToken,
       });
+      if (generation !== sessionGeneration.current) return;
 
       try {
         await hydrateCurrentUser();
       } catch {
+        if (generation !== sessionGeneration.current) return;
         setUser(buildSessionUser(auth.user, null));
         setProfile(null);
       }
@@ -206,12 +253,21 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback(
     async (payload: LoginPayload) => {
+      const generation = ++sessionGeneration.current;
       setAuthError(null);
       try {
         const auth = await loginMobile(payload);
+        if (generation !== sessionGeneration.current)
+          throw new ApiRequestError(
+            "Sign-in was cancelled. Please try again.",
+            { statusCode: 409 },
+          );
         await applyAuthResponse(auth);
       } catch (error) {
-        setAuthError(error instanceof Error ? error.message : "Unable to sign in.");
+        if (generation === sessionGeneration.current)
+          setAuthError(
+            error instanceof Error ? error.message : "Unable to sign in.",
+          );
         throw error;
       }
     },
@@ -220,12 +276,23 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const signUp = useCallback(
     async (payload: RegisterCustomerPayload) => {
+      const generation = ++sessionGeneration.current;
       setAuthError(null);
       try {
         const auth = await registerCustomerMobile(payload);
+        if (generation !== sessionGeneration.current)
+          throw new ApiRequestError(
+            "Sign-up was cancelled. Please try again.",
+            { statusCode: 409 },
+          );
         await applyAuthResponse(auth);
       } catch (error) {
-        setAuthError(error instanceof Error ? error.message : "Unable to create your account.");
+        if (generation === sessionGeneration.current)
+          setAuthError(
+            error instanceof Error
+              ? error.message
+              : "Unable to create your account.",
+          );
         throw error;
       }
     },
@@ -233,7 +300,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
   );
 
   const signOut = useCallback(async () => {
+    const previousUserId = user?.id;
+    const previousAccessToken = getAuthTokens()?.accessToken;
     const refreshToken = getAuthTokens()?.refreshToken;
+    await clearSessionState();
+    if (previousUserId && previousAccessToken)
+      void disablePush(previousUserId, previousAccessToken).catch(() => {});
 
     try {
       if (refreshToken) {
@@ -241,38 +313,43 @@ export function SessionProvider({ children }: PropsWithChildren) {
       }
     } catch {
       // Local session teardown should still happen even if the network call fails.
-    } finally {
-      await clearSessionState();
     }
-  }, [clearSessionState]);
+  }, [clearSessionState, user?.id]);
 
   const refreshProfile = useCallback(async () => {
     await hydrateCurrentUser();
   }, [hydrateCurrentUser]);
 
-  const updateProfile = useCallback(
-    async (payload: UpdateProfilePayload) => {
-      const nextProfile = await updateProfileSettings(payload);
-      setProfile(nextProfile);
-      setUser((currentUser) =>
-        currentUser
-          ? {
-              ...currentUser,
-              firstName: nextProfile.firstName,
-              lastName: nextProfile.lastName,
-              city: nextProfile.city,
-              stateCode: nextProfile.stateCode,
-            }
-          : currentUser,
-      );
-      return nextProfile;
-    },
-    [],
-  );
+  const updateProfile = useCallback(async (payload: UpdateProfilePayload) => {
+    const generation = sessionGeneration.current;
+    const nextProfile = await updateProfileSettings(payload);
+    if (generation !== sessionGeneration.current)
+      throw new ApiRequestError("Your session changed. Please try again.", {
+        statusCode: 409,
+      });
+    setProfile(nextProfile);
+    setUser((currentUser) =>
+      currentUser
+        ? {
+            ...currentUser,
+            firstName: nextProfile.firstName,
+            lastName: nextProfile.lastName,
+            city: nextProfile.city,
+            stateCode: nextProfile.stateCode,
+          }
+        : currentUser,
+    );
+    return nextProfile;
+  }, []);
 
   const updateNotificationPreferences = useCallback(
     async (payload: UpdateNotificationPreferencesPayload) => {
+      const generation = sessionGeneration.current;
       const nextProfile = await updateNotificationPreferencesRequest(payload);
+      if (generation !== sessionGeneration.current)
+        throw new ApiRequestError("Your session changed. Please try again.", {
+          statusCode: 409,
+        });
       setProfile(nextProfile);
       return nextProfile;
     },
@@ -324,7 +401,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
 }
 
 export function useSession() {

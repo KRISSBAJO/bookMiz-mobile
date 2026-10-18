@@ -45,10 +45,9 @@ export function formatMarketplacePrice(
       return new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: currencyCode,
-        maximumFractionDigits: 0,
       }).format(value / 100);
     } catch {
-      return `${currencyCode} ${Math.round(value / 100)}`;
+      return `${currencyCode} ${(value / 100).toFixed(2)}`;
     }
   }
 
@@ -77,7 +76,9 @@ export function formatMarketplaceDistance(distanceMiles?: number | null) {
   return `${distanceMiles.toFixed(distanceMiles < 10 ? 1 : 0)} mi`;
 }
 
-export function getMarketplaceLocationLabel(location?: MarketplaceLocation | null) {
+export function getMarketplaceLocationLabel(
+  location?: MarketplaceLocation | null,
+) {
   if (!location) {
     return "BookMiz";
   }

@@ -1,16 +1,34 @@
-name: Android test build
+name: Mobile checks and manual Android build
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      buildAndroid:
+        description: Build an Android test APK after checks pass
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: android-test-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
   android:
+    needs: checks
+    if: github.event_name == 'workflow_dispatch' && inputs.buildAndroid
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

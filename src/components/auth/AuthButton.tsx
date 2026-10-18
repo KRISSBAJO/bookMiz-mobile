@@ -88,6 +88,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   label: {
+    flexShrink: 1,
+    textAlign: "center",
     fontSize: 16,
     fontFamily: tokens.font.bold,
   },

@@ -54,7 +54,6 @@ const sortOptions: Array<{ value: MarketplaceSort; label: string }> = [
 ];
 
 const PAGE_SIZE = 8;
-const MIN_LOCATION_RESULTS = 6;
 
 const usStateLookup: Record<string, string> = {
   AL: "AL",
@@ -182,115 +181,10 @@ function normalizeLocation(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function isUnexpectedPropertyError(error: unknown) {
-  if (error instanceof ApiRequestError) {
-    const detailMessage = error.details?.map((item) => item.message).join(" ") ?? "";
-    return /property .* should not exist/i.test(detailMessage || error.message);
-  }
-
-  if (error instanceof Error) {
-    return /property .* should not exist/i.test(error.message);
-  }
-
-  return false;
-}
-
 async function runMarketplaceSearch(
   params: Parameters<typeof searchProviders>[0],
 ) {
-  const attempts: Array<Parameters<typeof searchProviders>[0]> = [
-    params,
-    {
-      query: params?.query,
-      categorySlug: undefined,
-      serviceModel: params?.serviceModel,
-      locationQuery: params?.locationQuery,
-      city: params?.city,
-      stateCode: params?.stateCode,
-      latitude: params?.latitude,
-      longitude: params?.longitude,
-      radiusMiles: params?.radiusMiles,
-      sort: params?.sort,
-      page: params?.page,
-      pageSize: params?.pageSize,
-    },
-    {
-      query: params?.query,
-      serviceModel: params?.serviceModel,
-      locationQuery: params?.locationQuery,
-      city: params?.city,
-      stateCode: params?.stateCode,
-      latitude: params?.latitude,
-      longitude: params?.longitude,
-      radiusMiles: params?.radiusMiles,
-      page: params?.page,
-      pageSize: params?.pageSize,
-    },
-  ];
-
-  let lastError: unknown;
-
-  for (const attempt of attempts) {
-    try {
-      return await searchProviders(attempt);
-    } catch (error) {
-      lastError = error;
-
-      if (!isUnexpectedPropertyError(error)) {
-        throw error;
-      }
-    }
-  }
-
-  throw lastError;
-}
-
-function dedupeProviders(providers: MarketplaceProviderCard[]) {
-  const seen = new Set<string>();
-
-  return providers.filter((provider) => {
-    if (seen.has(provider.id)) {
-      return false;
-    }
-
-    seen.add(provider.id);
-    return true;
-  });
-}
-
-function dedupeFilterChips(chips: MarketplaceSearchResponse["filterChips"]) {
-  const seen = new Set<string>();
-
-  return chips.filter((chip) => {
-    if (seen.has(chip.label.toLowerCase())) {
-      return false;
-    }
-
-    seen.add(chip.label.toLowerCase());
-    return true;
-  });
-}
-
-function dedupeMapPins(
-  pins: Array<{
-    id: string;
-    slug: string;
-    displayName: string;
-    latitude: number | null;
-    longitude: number | null;
-    addressLabel: string;
-  }>,
-) {
-  const seen = new Set<string>();
-
-  return pins.filter((pin) => {
-    if (seen.has(pin.id)) {
-      return false;
-    }
-
-    seen.add(pin.id);
-    return true;
-  });
+  return searchProviders(params);
 }
 
 function deriveStateCode(location: string, fallbackStateCode?: string | null) {
@@ -330,71 +224,6 @@ function deriveStateCode(location: string, fallbackStateCode?: string | null) {
   return fallbackStateCode?.toUpperCase() ?? undefined;
 }
 
-function mergeMarketplaceResponses(
-  exactResponse: MarketplaceSearchResponse,
-  stateResponse?: MarketplaceSearchResponse | null,
-  broaderResponse?: MarketplaceSearchResponse | null,
-) {
-  const mergedResults = dedupeProviders([
-    ...exactResponse.results,
-    ...(stateResponse?.results ?? []),
-    ...(broaderResponse?.results ?? []),
-  ]);
-  const mergedFeatured = dedupeProviders([
-    ...exactResponse.featuredProviders,
-    ...(stateResponse?.featuredProviders ?? []),
-    ...(broaderResponse?.featuredProviders ?? []),
-  ]);
-  const primaryResponse =
-    exactResponse.results.length > 0
-      ? exactResponse
-      : stateResponse?.results.length
-        ? stateResponse
-        : broaderResponse ?? exactResponse;
-
-  return {
-    ...primaryResponse,
-    query: {
-      ...primaryResponse.query,
-      locationLabel:
-        exactResponse.query.locationLabel ??
-        stateResponse?.query.locationLabel ??
-        broaderResponse?.query.locationLabel ??
-        null,
-    },
-    categories:
-      exactResponse.categories.length > 0
-        ? exactResponse.categories
-        : stateResponse?.categories.length
-          ? stateResponse.categories
-          : broaderResponse?.categories ?? [],
-    featuredProviders: mergedFeatured.slice(0, 6),
-    filterChips: dedupeFilterChips([
-      ...exactResponse.filterChips,
-      ...(stateResponse?.filterChips ?? []),
-      ...(broaderResponse?.filterChips ?? []),
-    ]),
-    results: mergedResults,
-    pagination: {
-      page: 1,
-      pageSize: mergedResults.length || PAGE_SIZE,
-      total: mergedResults.length,
-      totalPages: 1,
-    },
-    popularTreatments:
-      exactResponse.popularTreatments.length > 0
-        ? exactResponse.popularTreatments
-        : stateResponse?.popularTreatments.length
-          ? stateResponse.popularTreatments
-          : broaderResponse?.popularTreatments ?? [],
-    mapPins: dedupeMapPins([
-      ...(exactResponse.mapPins ?? []),
-      ...(stateResponse?.mapPins ?? []),
-      ...(broaderResponse?.mapPins ?? []),
-    ]),
-  } satisfies MarketplaceSearchResponse;
-}
-
 async function searchProvidersWithPriority(options: {
   query?: string;
   categorySlug?: string;
@@ -413,73 +242,10 @@ async function searchProvidersWithPriority(options: {
     pageSize: PAGE_SIZE,
   });
 
-  const exactCount = exactResponse.results.length;
-  const normalizedLocation = options.locationQuery ? normalizeLocation(options.locationQuery) : "";
-
-  if (!normalizedLocation || exactCount >= MIN_LOCATION_RESULTS) {
-    return {
-      response: exactResponse,
-      broadened: false,
-      note: null,
-    } satisfies ExploreFetchResult;
-  }
-
-  const stateCode = options.stateCode ?? deriveStateCode(normalizedLocation);
-  const needsBroaderResults = exactCount < MIN_LOCATION_RESULTS;
-
-  let stateResponse: MarketplaceSearchResponse | null = null;
-  let broaderResponse: MarketplaceSearchResponse | null = null;
-
-  if (needsBroaderResults && stateCode) {
-    stateResponse = await runMarketplaceSearch({
-      query: options.query,
-      categorySlug: options.categorySlug,
-      serviceModel: options.serviceModel,
-      stateCode,
-      sort: options.sort,
-      page: 1,
-      pageSize: PAGE_SIZE,
-    });
-  }
-
-  const combinedCount = dedupeProviders([
-    ...exactResponse.results,
-    ...(stateResponse?.results ?? []),
-  ]).length;
-
-  if (combinedCount < MIN_LOCATION_RESULTS) {
-    broaderResponse = await runMarketplaceSearch({
-      query: options.query,
-      categorySlug: options.categorySlug,
-      serviceModel: options.serviceModel,
-      sort: options.sort,
-      page: 1,
-      pageSize: PAGE_SIZE,
-    });
-  }
-
-  if (!stateResponse && !broaderResponse) {
-    return {
-      response: exactResponse,
-      broadened: false,
-      note: null,
-    } satisfies ExploreFetchResult;
-  }
-
-  const mergedResponse = mergeMarketplaceResponses(
-    exactResponse,
-    stateResponse,
-    broaderResponse,
-  );
-  const note =
-    exactCount > 0
-      ? `Showing ${normalizedLocation} first, then broader BookMiz matches${stateCode ? ` across ${stateCode} and beyond` : ""}.`
-      : `No exact matches in ${normalizedLocation} yet. Showing broader BookMiz matches${stateCode ? ` across ${stateCode} and beyond` : ""}.`;
-
   return {
-    response: mergedResponse,
-    broadened: true,
-    note,
+    response: exactResponse,
+    broadened: false,
+    note: null,
   } satisfies ExploreFetchResult;
 }
 
@@ -518,17 +284,26 @@ export function ExploreScreen() {
   const session = useSession();
 
   const [draftQuery, setDraftQuery] = useState(params.query ?? "");
-  const [draftLocation, setDraftLocation] = useState(params.locationQuery ?? "");
-  const [appliedQuery, setAppliedQuery] = useState(params.query ?? "");
-  const [appliedLocation, setAppliedLocation] = useState(params.locationQuery ?? "");
-  const [serviceModel, setServiceModel] = useState<MarketplaceSearchServiceModel>(
-    getInitialServiceModel(params.serviceModel),
+  const [draftLocation, setDraftLocation] = useState(
+    params.locationQuery ?? "",
   );
-  const [sort, setSort] = useState<MarketplaceSort>(getInitialSort(params.sort));
+  const [appliedQuery, setAppliedQuery] = useState(params.query ?? "");
+  const [appliedLocation, setAppliedLocation] = useState(
+    params.locationQuery ?? "",
+  );
+  const [serviceModel, setServiceModel] =
+    useState<MarketplaceSearchServiceModel>(
+      getInitialServiceModel(params.serviceModel),
+    );
+  const [sort, setSort] = useState<MarketplaceSort>(
+    getInitialSort(params.sort),
+  );
   const [activeCategory, setActiveCategory] = useState<string | undefined>(
     params.categorySlug,
   );
-  const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>([]);
+  const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>(
+    [],
+  );
   const [searchData, setSearchData] = useState<Awaited<
     ReturnType<typeof searchProviders>
   > | null>(null);
@@ -540,7 +315,9 @@ export function ExploreScreen() {
   const [didBroadenResults, setDidBroadenResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const latestRequestRef = useRef(0);
-  const searchDataRef = useRef<Awaited<ReturnType<typeof searchProviders>> | null>(null);
+  const searchDataRef = useRef<Awaited<
+    ReturnType<typeof searchProviders>
+  > | null>(null);
   const didBroadenResultsRef = useRef(false);
 
   useEffect(() => {
@@ -587,30 +364,31 @@ export function ExploreScreen() {
           normalizedLocation,
           session.profile?.stateCode ?? session.user?.stateCode ?? null,
         );
-        const [categoriesResult, marketplaceResult, bookmarksResult] = await Promise.allSettled([
-          listCategoryDiscovery(serviceModel),
-          append && searchDataRef.current && !didBroadenResultsRef.current
-            ? runMarketplaceSearch({
-                query: appliedQuery.trim() || undefined,
-                categorySlug: activeCategory,
-                serviceModel,
-                locationQuery: normalizedLocation || undefined,
-                sort,
-                page,
-                pageSize: PAGE_SIZE,
-              })
-            : searchProvidersWithPriority({
-                query: appliedQuery.trim() || undefined,
-                categorySlug: activeCategory,
-                serviceModel,
-                locationQuery: normalizedLocation || undefined,
-                stateCode,
-                sort,
-              }),
-          session.isSignedIn
-            ? listCustomerBookmarkedProviders()
-            : Promise.resolve([] as MarketplaceProviderCard[]),
-        ]);
+        const [categoriesResult, marketplaceResult, bookmarksResult] =
+          await Promise.allSettled([
+            listCategoryDiscovery(serviceModel),
+            append && searchDataRef.current && !didBroadenResultsRef.current
+              ? runMarketplaceSearch({
+                  query: appliedQuery.trim() || undefined,
+                  categorySlug: activeCategory,
+                  serviceModel,
+                  locationQuery: normalizedLocation || undefined,
+                  sort,
+                  page,
+                  pageSize: PAGE_SIZE,
+                })
+              : searchProvidersWithPriority({
+                  query: appliedQuery.trim() || undefined,
+                  categorySlug: activeCategory,
+                  serviceModel,
+                  locationQuery: normalizedLocation || undefined,
+                  stateCode,
+                  sort,
+                }),
+            session.isSignedIn
+              ? listCustomerBookmarkedProviders()
+              : Promise.resolve([] as MarketplaceProviderCard[]),
+          ]);
 
         if (marketplaceResult.status !== "fulfilled") {
           throw marketplaceResult.reason;
@@ -625,7 +403,9 @@ export function ExploreScreen() {
             ? marketplaceResult.value.response
             : marketplaceResult.value;
         const nextFallbackNote =
-          "note" in marketplaceResult.value ? marketplaceResult.value.note : null;
+          "note" in marketplaceResult.value
+            ? marketplaceResult.value.note
+            : null;
         const nextDidBroadenResults =
           "broadened" in marketplaceResult.value
             ? marketplaceResult.value.broadened
@@ -662,34 +442,9 @@ export function ExploreScreen() {
           console.warn("[bookmiz-mobile] marketplace search failed", nextError);
         }
 
-        try {
-          const recoverySearch = await searchProvidersWithPriority({
-            serviceModel,
-            locationQuery: normalizedLocation || undefined,
-            stateCode,
-            sort: "recommended",
-          });
-
-          if (requestId !== latestRequestRef.current) {
-            return;
-          }
-
-          setSearchData(recoverySearch.response);
-          setFallbackNote(
-            recoverySearch.note ??
-              "We reset incompatible filters and showed live BookMiz matches instead.",
-          );
-          setDidBroadenResults(recoverySearch.broadened);
-          setError(null);
-        } catch (recoveryError) {
-          if (__DEV__) {
-            console.warn("[bookmiz-mobile] marketplace recovery failed", recoveryError);
-          }
-
-          setError(getExploreErrorMessage(nextError));
-          setFallbackNote(null);
-          setDidBroadenResults(false);
-        }
+        setError(getExploreErrorMessage(nextError));
+        setFallbackNote(null);
+        setDidBroadenResults(false);
       } finally {
         if (requestId === latestRequestRef.current) {
           setIsLoading(false);
@@ -817,7 +572,6 @@ export function ExploreScreen() {
     setActiveCategory(undefined);
   }, []);
 
-
   const currentSortLabel =
     sortOptions.find((option) => option.value === sort)?.label ?? "Recommended";
   const showSkeleton = isLoading && providers.length === 0;
@@ -828,7 +582,11 @@ export function ExploreScreen() {
       subtitle={heroSubtitle}
       heroContent={
         <View style={styles.searchShell}>
-          <FontAwesome6 name="magnifying-glass" size={16} color={tokens.colors.muted} />
+          <FontAwesome6
+            name="magnifying-glass"
+            size={16}
+            color={tokens.colors.muted}
+          />
           <TextInput
             placeholder={
               serviceModel === "PROFESSIONAL"
@@ -854,7 +612,11 @@ export function ExploreScreen() {
               accessibilityLabel="Clear search"
               style={styles.searchClear}
             >
-              <FontAwesome6 name="xmark" size={14} color={tokens.colors.muted} />
+              <FontAwesome6
+                name="xmark"
+                size={14}
+                color={tokens.colors.muted}
+              />
             </Pressable>
           ) : null}
         </View>
@@ -879,7 +641,12 @@ export function ExploreScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: isActive }}
             >
-              <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+              <Text
+                style={[
+                  styles.chipText,
+                  isActive ? styles.chipTextActive : null,
+                ]}
+              >
                 {option.label}
               </Text>
             </Pressable>
@@ -892,7 +659,14 @@ export function ExploreScreen() {
           accessibilityRole="button"
           accessibilityState={{ selected: !activeCategory }}
         >
-          <Text style={[styles.chipText, !activeCategory ? styles.chipTextActive : null]}>All</Text>
+          <Text
+            style={[
+              styles.chipText,
+              !activeCategory ? styles.chipTextActive : null,
+            ]}
+          >
+            All
+          </Text>
         </Pressable>
         {visibleCategories.map((category) => {
           const isActive = activeCategory === category.slug;
@@ -904,7 +678,12 @@ export function ExploreScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: isActive }}
             >
-              <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+              <Text
+                style={[
+                  styles.chipText,
+                  isActive ? styles.chipTextActive : null,
+                ]}
+              >
                 {category.name}
               </Text>
             </Pressable>
@@ -924,7 +703,11 @@ export function ExploreScreen() {
           accessibilityRole="button"
           accessibilityLabel="Change location"
         >
-          <FontAwesome6 name="location-dot" size={14} color={tokens.colors.ink} />
+          <FontAwesome6
+            name="location-dot"
+            size={14}
+            color={tokens.colors.ink}
+          />
           <Text style={styles.controlChipText} numberOfLines={1}>
             {locationLabel ?? "Anywhere"}
           </Text>
@@ -935,7 +718,11 @@ export function ExploreScreen() {
           accessibilityRole="button"
           accessibilityLabel="Change sort"
         >
-          <FontAwesome6 name="arrow-down-wide-short" size={14} color={tokens.colors.ink} />
+          <FontAwesome6
+            name="arrow-down-wide-short"
+            size={14}
+            color={tokens.colors.ink}
+          />
           <Text style={styles.controlChipText}>{currentSortLabel}</Text>
         </Pressable>
         <Pressable
@@ -954,7 +741,10 @@ export function ExploreScreen() {
           <Text style={styles.errorText} accessibilityRole="alert">
             {error}
           </Text>
-          <Pressable onPress={() => void fetchExplore(1, false)} accessibilityRole="button">
+          <Pressable
+            onPress={() => void fetchExplore(1, false)}
+            accessibilityRole="button"
+          >
             <Text style={styles.errorRetry}>Try again</Text>
           </Pressable>
         </View>
@@ -962,7 +752,11 @@ export function ExploreScreen() {
 
       {fallbackNote ? (
         <View style={styles.noteBox}>
-          <FontAwesome6 name="circle-info" size={14} color={tokens.colors.brandDeep} />
+          <FontAwesome6
+            name="circle-info"
+            size={14}
+            color={tokens.colors.brandDeep}
+          />
           <Text style={styles.noteText}>{fallbackNote}</Text>
         </View>
       ) : null}
@@ -981,9 +775,13 @@ export function ExploreScreen() {
                 <ProviderCard
                   provider={provider}
                   isBookmarked={bookmarkedIds.includes(provider.id)}
-                  onPress={() => router.push(`/providers/${provider.slug}` as never)}
+                  onPress={() =>
+                    router.push(`/providers/${provider.slug}` as never)
+                  }
                   onToggleBookmark={
-                    session.isSignedIn ? () => void toggleBookmark(provider.id) : undefined
+                    session.isSignedIn
+                      ? () => void toggleBookmark(provider.id)
+                      : undefined
                   }
                 />
               </View>
@@ -1010,9 +808,13 @@ export function ExploreScreen() {
               key={provider.id}
               provider={provider}
               isBookmarked={bookmarkedIds.includes(provider.id)}
-              onPress={() => router.push(`/providers/${provider.slug}` as never)}
+              onPress={() =>
+                router.push(`/providers/${provider.slug}` as never)
+              }
               onToggleBookmark={
-                session.isSignedIn ? () => void toggleBookmark(provider.id) : undefined
+                session.isSignedIn
+                  ? () => void toggleBookmark(provider.id)
+                  : undefined
               }
             />
           ))
@@ -1054,7 +856,9 @@ export function ExploreScreen() {
           </View>
         ) : null}
 
-        {!isLoading && providers.length === 0 && liveCategorySuggestions.length > 0 ? (
+        {!isLoading &&
+        providers.length === 0 &&
+        liveCategorySuggestions.length > 0 ? (
           <View style={styles.section}>
             <SectionHeader title="Categories with providers" />
             {liveCategorySuggestions.map((category) => {
@@ -1088,7 +892,11 @@ export function ExploreScreen() {
                       {category.description ? ` · ${category.description}` : ""}
                     </Text>
                   </View>
-                  <FontAwesome6 name="chevron-right" size={14} color={tokens.colors.muted} />
+                  <FontAwesome6
+                    name="chevron-right"
+                    size={14}
+                    color={tokens.colors.muted}
+                  />
                 </Pressable>
               );
             })}
@@ -1131,7 +939,11 @@ export function ExploreScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Close"
               >
-                <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                <FontAwesome6
+                  name="xmark"
+                  size={18}
+                  color={tokens.colors.ink}
+                />
               </Pressable>
             </View>
 
@@ -1185,12 +997,20 @@ export function ExploreScreen() {
                     return (
                       <Pressable
                         key={option.value}
-                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        style={[
+                          styles.chip,
+                          isActive ? styles.chipActive : null,
+                        ]}
                         onPress={() => setLane(option.value)}
                         accessibilityRole="button"
                         accessibilityState={{ selected: isActive }}
                       >
-                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isActive ? styles.chipTextActive : null,
+                          ]}
+                        >
                           {option.label}
                         </Text>
                       </Pressable>
@@ -1203,12 +1023,20 @@ export function ExploreScreen() {
                 <Text style={styles.modalLabel}>Category</Text>
                 <View style={styles.wrapRow}>
                   <Pressable
-                    style={[styles.chip, !activeCategory ? styles.chipActive : null]}
+                    style={[
+                      styles.chip,
+                      !activeCategory ? styles.chipActive : null,
+                    ]}
                     onPress={() => setActiveCategory(undefined)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: !activeCategory }}
                   >
-                    <Text style={[styles.chipText, !activeCategory ? styles.chipTextActive : null]}>
+                    <Text
+                      style={[
+                        styles.chipText,
+                        !activeCategory ? styles.chipTextActive : null,
+                      ]}
+                    >
                       All
                     </Text>
                   </Pressable>
@@ -1217,12 +1045,20 @@ export function ExploreScreen() {
                     return (
                       <Pressable
                         key={category.id}
-                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        style={[
+                          styles.chip,
+                          isActive ? styles.chipActive : null,
+                        ]}
                         onPress={() => setActiveCategory(category.slug)}
                         accessibilityRole="button"
                         accessibilityState={{ selected: isActive }}
                       >
-                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isActive ? styles.chipTextActive : null,
+                          ]}
+                        >
                           {category.name}
                         </Text>
                       </Pressable>
@@ -1239,12 +1075,20 @@ export function ExploreScreen() {
                     return (
                       <Pressable
                         key={option.value}
-                        style={[styles.chip, isActive ? styles.chipActive : null]}
+                        style={[
+                          styles.chip,
+                          isActive ? styles.chipActive : null,
+                        ]}
                         onPress={() => setSort(option.value)}
                         accessibilityRole="button"
                         accessibilityState={{ selected: isActive }}
                       >
-                        <Text style={[styles.chipText, isActive ? styles.chipTextActive : null]}>
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isActive ? styles.chipTextActive : null,
+                          ]}
+                        >
                           {option.label}
                         </Text>
                       </Pressable>
@@ -1261,7 +1105,11 @@ export function ExploreScreen() {
                 style={styles.modalReset}
                 onPress={resetFilters}
               />
-              <AuthButton label="Show results" style={styles.modalApply} onPress={applyAndCloseFilters} />
+              <AuthButton
+                label="Show results"
+                style={styles.modalApply}
+                onPress={applyAndCloseFilters}
+              />
             </View>
           </SafeAreaView>
         </View>
@@ -1276,8 +1124,16 @@ function SkeletonRows({ count }: { count: number }) {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();

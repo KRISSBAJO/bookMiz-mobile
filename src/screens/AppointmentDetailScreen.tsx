@@ -41,9 +41,16 @@ import {
   isBookingLiveNow,
 } from "@/src/lib/booking-display";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
-import { bookingPaymentLabel, shouldRefreshBookingPayment } from "@/src/lib/booking-payment-display";
+import {
+  bookingPaymentLabel,
+  shouldRefreshBookingPayment,
+} from "@/src/lib/booking-payment-display";
 import { tokens } from "@/src/theme/tokens";
 import { openBookingCheckout } from "@/src/lib/open-booking-checkout";
+import {
+  addBookingDocument,
+  openBookingDocument,
+} from "@/src/lib/booking-documents";
 
 type BookingCalendarDay = {
   value: string;
@@ -178,7 +185,8 @@ function statusLabel(status: CustomerBookingRecord["status"]) {
 }
 
 function paymentTone(label: string) {
-  if (label === "Paid") return { pill: styles.statusConfirmed, text: styles.statusTextConfirmed };
+  if (label === "Paid")
+    return { pill: styles.statusConfirmed, text: styles.statusTextConfirmed };
   if (label === "Unpaid" || label === "Refund pending") {
     return { pill: styles.statusPending, text: styles.statusTextPending };
   }
@@ -201,25 +209,58 @@ export function AppointmentDetailScreen() {
     getMonthStartInputValue(getTodayInputValue()),
   );
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
-  const [monthAvailabilityLoading, setMonthAvailabilityLoading] = useState(false);
+  const [monthAvailabilityLoading, setMonthAvailabilityLoading] =
+    useState(false);
   const [monthAvailabilityDays, setMonthAvailabilityDays] = useState<
     PublicAvailabilityMonthDaySummary[]
   >([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slots, setSlots] = useState<PublicAvailabilitySlot[]>([]);
-  const [selectedSlotStartAt, setSelectedSlotStartAt] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"cancel" | "reschedule" | "payment" | null>(null);
+  const [selectedSlotStartAt, setSelectedSlotStartAt] = useState<string | null>(
+    null,
+  );
+  const [busyAction, setBusyAction] = useState<
+    "cancel" | "reschedule" | "payment" | null
+  >(null);
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const handleDocument = async (
+    document?: CustomerBookingRecord["documents"][number],
+  ) => {
+    if (!booking || documentBusy) return;
+    setDocumentBusy(true);
+    setError(null);
+    try {
+      if (document) await openBookingDocument(booking.id, document);
+      else await addBookingDocument(booking.id);
+      setBooking(await getCustomerBooking(booking.id));
+    } catch (reason) {
+      setError(
+        getFriendlyApiError(reason, "Could not open or upload this document."),
+      );
+    } finally {
+      setDocumentBusy(false);
+    }
+  };
 
   async function continuePayment() {
     if (!booking || busyAction) return;
-    setBusyAction("payment"); setError(null);
+    setBusyAction("payment");
+    setError(null);
     try {
       const payment = await resumeCustomerPayment(booking.id);
-      if (payment?.authorizationUrl) await openBookingCheckout(payment.authorizationUrl);
+      if (payment?.authorizationUrl)
+        await openBookingCheckout(payment.authorizationUrl);
       setBooking(await getCustomerBooking(booking.id));
     } catch (reason) {
-      setError(getFriendlyApiError(reason, "Could not reopen checkout. Please try again."));
-    } finally { setBusyAction(null); }
+      setError(
+        getFriendlyApiError(
+          reason,
+          "Could not reopen checkout. Please try again.",
+        ),
+      );
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   const loadBooking = useCallback(async () => {
@@ -252,7 +293,8 @@ export function AppointmentDetailScreen() {
     }, [loadBooking]),
   );
 
-  const paymentRefreshId = booking && shouldRefreshBookingPayment(booking) ? booking.id : null;
+  const paymentRefreshId =
+    booking && shouldRefreshBookingPayment(booking) ? booking.id : null;
   useEffect(() => {
     if (!paymentRefreshId) return;
     let active = true;
@@ -262,11 +304,18 @@ export function AppointmentDetailScreen() {
       try {
         const updated = await getCustomerBooking(paymentRefreshId);
         if (!active) return;
-        setBooking(current => current?.id === updated.id ? updated : current);
+        setBooking((current) =>
+          current?.id === updated.id ? updated : current,
+        );
         if (!shouldRefreshBookingPayment(updated)) clearInterval(timer);
-      } catch { /* Retain the last confirmed payment status. */ }
+      } catch {
+        /* Retain the last confirmed payment status. */
+      }
     }, 3000);
-    return () => { active = false; clearInterval(timer); };
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [paymentRefreshId]);
 
   const bootstrapReschedule = useCallback(() => {
@@ -433,7 +482,10 @@ export function AppointmentDetailScreen() {
 
         setSlots(availability.slots);
         setSelectedSlotStartAt((current) => {
-          if (current && availability.slots.some((slot) => slot.startAt === current)) {
+          if (
+            current &&
+            availability.slots.some((slot) => slot.startAt === current)
+          ) {
             return current;
           }
 
@@ -471,14 +523,17 @@ export function AppointmentDetailScreen() {
     selectedDate,
   ]);
 
-  const stepMonth = useCallback((offset: number) => {
-    const nextMonth = shiftMonthInputValue(calendarMonth, offset);
-    setCalendarMonth(nextMonth);
-    setSelectedDate(nextMonth);
-    setSelectedSlotStartAt(null);
-    setSlots([]);
-    setError(null);
-  }, [calendarMonth]);
+  const stepMonth = useCallback(
+    (offset: number) => {
+      const nextMonth = shiftMonthInputValue(calendarMonth, offset);
+      setCalendarMonth(nextMonth);
+      setSelectedDate(nextMonth);
+      setSelectedSlotStartAt(null);
+      setSlots([]);
+      setError(null);
+    },
+    [calendarMonth],
+  );
 
   const handleCancel = useCallback(async () => {
     if (!booking) {
@@ -497,10 +552,7 @@ export function AppointmentDetailScreen() {
       setCancelReason("");
     } catch (nextError) {
       setError(
-        getFriendlyApiError(
-          nextError,
-          "We could not cancel this appointment.",
-        ),
+        getFriendlyApiError(nextError, "We could not cancel this appointment."),
       );
     } finally {
       setBusyAction(null);
@@ -546,7 +598,12 @@ export function AppointmentDetailScreen() {
         "Provider location";
   const addressLine =
     booking?.channel !== "VIDEO" && booking?.location
-      ? [booking.location.line1, [booking.location.city, booking.location.stateCode].filter(Boolean).join(", ")]
+      ? [
+          booking.location.line1,
+          [booking.location.city, booking.location.stateCode]
+            .filter(Boolean)
+            .join(", "),
+        ]
           .filter(Boolean)
           .join(" · ")
       : null;
@@ -565,9 +622,9 @@ export function AppointmentDetailScreen() {
 
   const showPaymentAction = Boolean(
     booking &&
-      booking.paymentMode &&
-      booking.paymentStatus === "UNPAID" &&
-      ["PENDING", "CONFIRMED"].includes(booking.status),
+    booking.paymentMode &&
+    booking.paymentStatus === "UNPAID" &&
+    ["PENDING", "CONFIRMED"].includes(booking.status),
   );
 
   return (
@@ -585,7 +642,10 @@ export function AppointmentDetailScreen() {
               {error}
             </Text>
             {!booking ? (
-              <Pressable onPress={() => void loadBooking()} accessibilityRole="button">
+              <Pressable
+                onPress={() => void loadBooking()}
+                accessibilityRole="button"
+              >
                 <Text style={styles.errorRetry}>Try again</Text>
               </Pressable>
             ) : null}
@@ -598,11 +658,15 @@ export function AppointmentDetailScreen() {
               <View style={styles.heroCardRow}>
                 <View style={styles.dateTile}>
                   <Text style={styles.dateTileWeekday}>
-                    {startDate.toLocaleDateString(undefined, { weekday: "short" })}
+                    {startDate.toLocaleDateString(undefined, {
+                      weekday: "short",
+                    })}
                   </Text>
                   <Text style={styles.dateTileDay}>{startDate.getDate()}</Text>
                   <Text style={styles.dateTileWeekday}>
-                    {startDate.toLocaleDateString(undefined, { month: "short" })}
+                    {startDate.toLocaleDateString(undefined, {
+                      month: "short",
+                    })}
                   </Text>
                 </View>
                 <View style={styles.heroCardBody}>
@@ -613,7 +677,8 @@ export function AppointmentDetailScreen() {
                     {booking.provider.displayName}
                   </Text>
                   <Text style={styles.heroCardMeta} numberOfLines={1}>
-                    {formatBookingTimeLabel(booking.startsAt)} · {booking.service.durationMinutes} min
+                    {formatBookingTimeLabel(booking.startsAt)} ·{" "}
+                    {booking.service.durationMinutes} min
                     {booking.assignedStaff
                       ? ` · ${booking.assignedStaff.displayName ?? booking.assignedStaff.firstName}`
                       : ""}
@@ -622,7 +687,9 @@ export function AppointmentDetailScreen() {
               </View>
               <View style={styles.heroPills}>
                 <View style={[styles.statusPill, tone.pill]}>
-                  <Text style={[styles.statusText, tone.text]}>{statusLabel(booking.status)}</Text>
+                  <Text style={[styles.statusText, tone.text]}>
+                    {statusLabel(booking.status)}
+                  </Text>
                 </View>
                 {isBookingLiveNow(booking) ? (
                   <View style={styles.livePill}>
@@ -634,7 +701,11 @@ export function AppointmentDetailScreen() {
 
             {showPaymentAction ? (
               <AuthButton
-                label={busyAction === "payment" ? "Opening checkout…" : "Continue payment"}
+                label={
+                  busyAction === "payment"
+                    ? "Opening checkout…"
+                    : "Continue payment"
+                }
                 disabled={Boolean(busyAction)}
                 loading={busyAction === "payment"}
                 onPress={() => void continuePayment()}
@@ -660,7 +731,11 @@ export function AppointmentDetailScreen() {
                 ) : null}
                 {canCancelBooking(booking) ? (
                   <Pressable
-                    style={({ pressed }) => [styles.dangerGhost, styles.actionButton, pressed ? styles.pressed : null]}
+                    style={({ pressed }) => [
+                      styles.dangerGhost,
+                      styles.actionButton,
+                      pressed ? styles.pressed : null,
+                    ]}
                     onPress={() => setCancelOpen(true)}
                     accessibilityRole="button"
                   >
@@ -682,20 +757,32 @@ export function AppointmentDetailScreen() {
                 </Text>
               </View>
               <Text style={styles.sectionValue}>{locationLine}</Text>
-              {addressLine ? <Text style={styles.sectionCaption}>{addressLine}</Text> : null}
-              {booking.channel === "VIDEO" && !hasActiveMeetingLink(booking.meeting) ? (
-                <Text style={styles.sectionCaption}>The join link appears here once it is ready.</Text>
+              {addressLine ? (
+                <Text style={styles.sectionCaption}>{addressLine}</Text>
+              ) : null}
+              {booking.channel === "VIDEO" &&
+              !hasActiveMeetingLink(booking.meeting) ? (
+                <Text style={styles.sectionCaption}>
+                  The join link appears here once it is ready.
+                </Text>
               ) : null}
             </View>
 
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <FontAwesome6 name="credit-card" size={16} color={tokens.colors.ink} />
+                <FontAwesome6
+                  name="credit-card"
+                  size={16}
+                  color={tokens.colors.ink}
+                />
                 <Text style={styles.sectionTitle}>Payment</Text>
               </View>
               <View style={styles.paymentRow}>
                 <Text style={styles.paymentAmount}>
-                  {formatBookingMoney(booking.totalPriceCents, booking.currencyCode)}
+                  {formatBookingMoney(
+                    booking.totalPriceCents,
+                    booking.currencyCode,
+                  )}
                 </Text>
                 <View style={[styles.statusPill, paymentPill.pill]}>
                   <Text style={[styles.statusText, paymentPill.text]}>
@@ -706,7 +793,11 @@ export function AppointmentDetailScreen() {
               </View>
               {booking.depositCents ? (
                 <Text style={styles.sectionCaption}>
-                  Deposit {formatBookingMoney(booking.depositCents, booking.currencyCode)}
+                  Deposit{" "}
+                  {formatBookingMoney(
+                    booking.depositCents,
+                    booking.currencyCode,
+                  )}
                 </Text>
               ) : null}
             </View>
@@ -714,41 +805,100 @@ export function AppointmentDetailScreen() {
             {booking.notes ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
-                  <FontAwesome6 name="note-sticky" size={16} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="note-sticky"
+                    size={16}
+                    color={tokens.colors.ink}
+                  />
                   <Text style={styles.sectionTitle}>Notes</Text>
                 </View>
                 <Text style={styles.sectionBody}>{booking.notes}</Text>
               </View>
             ) : null}
 
+            <AuthButton
+              label={
+                documentBusy
+                  ? "Working on document…"
+                  : "Upload appointment document"
+              }
+              variant="secondary"
+              disabled={documentBusy}
+              onPress={() => handleDocument()}
+            />
+            {booking.customerPolicy ? (
+              <View style={styles.documentCopy}>
+                <Text style={styles.sectionTitle}>
+                  Cancellation and rescheduling
+                </Text>
+                <Text style={styles.sectionBody}>
+                  Changes allowed until{" "}
+                  {new Date(
+                    booking.customerPolicy.changeDeadline,
+                  ).toLocaleString()}
+                  .
+                </Text>
+                {booking.customerPolicy.cancellationPolicy ? (
+                  <Text style={styles.sectionBody}>
+                    {booking.customerPolicy.cancellationPolicy}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             {booking.cancelledReason ? (
               <View style={[styles.section, styles.sectionDanger]}>
                 <View style={styles.sectionHeader}>
-                  <FontAwesome6 name="xmark" size={16} color={tokens.colors.danger} />
-                  <Text style={[styles.sectionTitle, styles.sectionTitleDanger]}>Cancellation reason</Text>
+                  <FontAwesome6
+                    name="xmark"
+                    size={16}
+                    color={tokens.colors.danger}
+                  />
+                  <Text
+                    style={[styles.sectionTitle, styles.sectionTitleDanger]}
+                  >
+                    Cancellation reason
+                  </Text>
                 </View>
-                <Text style={styles.sectionBody}>{booking.cancelledReason}</Text>
+                <Text style={styles.sectionBody}>
+                  {booking.cancelledReason}
+                </Text>
               </View>
             ) : null}
 
             {booking.documents.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
-                  <FontAwesome6 name="file-lines" size={16} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="file-lines"
+                    size={16}
+                    color={tokens.colors.ink}
+                  />
                   <Text style={styles.sectionTitle}>Documents</Text>
                 </View>
                 {booking.documents.map((document, index) => (
                   <View
                     key={document.id}
-                    style={[styles.documentRow, index < booking.documents.length - 1 ? styles.rowDivider : null]}
+                    style={[
+                      styles.documentRow,
+                      index < booking.documents.length - 1
+                        ? styles.rowDivider
+                        : null,
+                    ]}
                   >
                     <View style={styles.documentCopy}>
                       <Text style={styles.documentLabel} numberOfLines={1}>
                         {document.label || document.fileName}
                       </Text>
                       <Text style={styles.documentMeta} numberOfLines={1}>
-                        {document.fileName} · {formatSecureDocumentSize(document.sizeBytes)}
+                        {document.fileName} ·{" "}
+                        {formatSecureDocumentSize(document.sizeBytes)}
                       </Text>
+                      <AuthButton
+                        label="Open document"
+                        variant="secondary"
+                        disabled={documentBusy}
+                        onPress={() => handleDocument(document)}
+                      />
                     </View>
                   </View>
                 ))}
@@ -771,8 +921,14 @@ export function AppointmentDetailScreen() {
         ) : (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Appointment unavailable</Text>
-            <Text style={styles.emptyBody}>It may have been removed or the link is wrong.</Text>
-            <Pressable style={styles.emptyAction} onPress={() => router.back()} accessibilityRole="button">
+            <Text style={styles.emptyBody}>
+              It may have been removed or the link is wrong.
+            </Text>
+            <Pressable
+              style={styles.emptyAction}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+            >
               <Text style={styles.emptyActionText}>Go back</Text>
             </Pressable>
           </View>
@@ -799,7 +955,8 @@ export function AppointmentDetailScreen() {
                 <View style={styles.modalHeaderCopy}>
                   <Text style={styles.modalTitle}>Cancel appointment</Text>
                   <Text style={styles.modalSubtitle}>
-                    The provider is told right away. Any video link stops working.
+                    The provider is told right away. Any video link stops
+                    working.
                   </Text>
                 </View>
                 <Pressable
@@ -808,7 +965,11 @@ export function AppointmentDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Close"
                 >
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="xmark"
+                    size={18}
+                    color={tokens.colors.ink}
+                  />
                 </Pressable>
               </View>
               <TextInput
@@ -828,14 +989,19 @@ export function AppointmentDetailScreen() {
                   onPress={() => setCancelOpen(false)}
                 />
                 <Pressable
-                  style={({ pressed }) => [styles.dangerFilled, pressed ? styles.pressed : null]}
+                  style={({ pressed }) => [
+                    styles.dangerFilled,
+                    pressed ? styles.pressed : null,
+                  ]}
                   onPress={() => void handleCancel()}
                   disabled={busyAction === "cancel"}
                   accessibilityRole="button"
                   accessibilityState={{ disabled: busyAction === "cancel" }}
                 >
                   <Text style={styles.dangerFilledText}>
-                    {busyAction === "cancel" ? "Cancelling…" : "Cancel appointment"}
+                    {busyAction === "cancel"
+                      ? "Cancelling…"
+                      : "Cancel appointment"}
                   </Text>
                 </Pressable>
               </View>
@@ -864,8 +1030,11 @@ export function AppointmentDetailScreen() {
                 <View style={styles.modalHeaderCopy}>
                   <Text style={styles.modalTitle}>Reschedule</Text>
                   <Text style={styles.modalSubtitle}>
-                    Now {booking ? formatBookingDateLabel(booking.startsAt) : ""}
-                    {booking ? ` at ${formatBookingTimeLabel(booking.startsAt)}` : ""}
+                    Now{" "}
+                    {booking ? formatBookingDateLabel(booking.startsAt) : ""}
+                    {booking
+                      ? ` at ${formatBookingTimeLabel(booking.startsAt)}`
+                      : ""}
                   </Text>
                 </View>
                 <Pressable
@@ -874,7 +1043,11 @@ export function AppointmentDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Close"
                 >
-                  <FontAwesome6 name="xmark" size={18} color={tokens.colors.ink} />
+                  <FontAwesome6
+                    name="xmark"
+                    size={18}
+                    color={tokens.colors.ink}
+                  />
                 </Pressable>
               </View>
 
@@ -885,7 +1058,9 @@ export function AppointmentDetailScreen() {
               >
                 <View style={styles.calendarCard}>
                   <View style={styles.calendarHeader}>
-                    <Text style={styles.calendarTitle}>{formatCalendarMonth(calendarMonth)}</Text>
+                    <Text style={styles.calendarTitle}>
+                      {formatCalendarMonth(calendarMonth)}
+                    </Text>
                     <View style={styles.monthControls}>
                       <Pressable
                         style={styles.monthButton}
@@ -893,7 +1068,11 @@ export function AppointmentDetailScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Previous month"
                       >
-                        <FontAwesome6 name="chevron-left" size={14} color={tokens.colors.ink} />
+                        <FontAwesome6
+                          name="chevron-left"
+                          size={14}
+                          color={tokens.colors.ink}
+                        />
                       </Pressable>
                       <Pressable
                         style={styles.monthButton}
@@ -901,14 +1080,21 @@ export function AppointmentDetailScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Next month"
                       >
-                        <FontAwesome6 name="chevron-right" size={14} color={tokens.colors.ink} />
+                        <FontAwesome6
+                          name="chevron-right"
+                          size={14}
+                          color={tokens.colors.ink}
+                        />
                       </Pressable>
                     </View>
                   </View>
 
                   <View style={styles.weekdayRow}>
                     {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
-                      <Text key={`${label}-${index}`} style={styles.weekdayLabel}>
+                      <Text
+                        key={`${label}-${index}`}
+                        style={styles.weekdayLabel}
+                      >
                         {label}
                       </Text>
                     ))}
@@ -917,14 +1103,21 @@ export function AppointmentDetailScreen() {
                   {monthAvailabilityLoading ? (
                     <View style={styles.calendarGrid}>
                       {calendarDays.map((day) => (
-                        <View key={day.value} style={[styles.dayCell, styles.dayCellSkeleton]} />
+                        <View
+                          key={day.value}
+                          style={[styles.dayCell, styles.dayCellSkeleton]}
+                        />
                       ))}
                     </View>
                   ) : (
                     <View style={styles.calendarGrid}>
                       {calendarDays.map((day) => {
-                        const daySummary = monthAvailabilityByDate.get(day.value);
-                        const isAvailable = Boolean(day.inMonth && !day.isPast && daySummary);
+                        const daySummary = monthAvailabilityByDate.get(
+                          day.value,
+                        );
+                        const isAvailable = Boolean(
+                          day.inMonth && !day.isPast && daySummary,
+                        );
                         const isSelected = day.isSelected && isAvailable;
                         return (
                           <Pressable
@@ -937,7 +1130,10 @@ export function AppointmentDetailScreen() {
                             ]}
                             disabled={!isAvailable}
                             accessibilityRole="button"
-                            accessibilityState={{ disabled: !isAvailable, selected: isSelected }}
+                            accessibilityState={{
+                              disabled: !isAvailable,
+                              selected: isSelected,
+                            }}
                             accessibilityLabel={formatCalendarDate(day.value)}
                             onPress={() => {
                               setSelectedDate(day.value);
@@ -948,7 +1144,9 @@ export function AppointmentDetailScreen() {
                             <Text
                               style={[
                                 styles.dayCellLabel,
-                                isAvailable ? styles.dayCellLabelAvailable : null,
+                                isAvailable
+                                  ? styles.dayCellLabelAvailable
+                                  : null,
                                 isSelected ? styles.dayCellLabelSelected : null,
                               ]}
                             >
@@ -970,11 +1168,16 @@ export function AppointmentDetailScreen() {
                 </View>
 
                 <View style={styles.slotsBlock}>
-                  <Text style={styles.slotsTitle}>{formatCalendarDate(selectedDate)}</Text>
+                  <Text style={styles.slotsTitle}>
+                    {formatCalendarDate(selectedDate)}
+                  </Text>
                   {slotsLoading ? (
                     <View style={styles.slotGrid}>
                       {[0, 1, 2, 3].map((index) => (
-                        <View key={index} style={[styles.slotChip, styles.slotChipSkeleton]} />
+                        <View
+                          key={index}
+                          style={[styles.slotChip, styles.slotChipSkeleton]}
+                        />
                       ))}
                     </View>
                   ) : slots.length > 0 ? (
@@ -984,13 +1187,21 @@ export function AppointmentDetailScreen() {
                         return (
                           <Pressable
                             key={slot.startAt}
-                            style={[styles.slotChip, isSelected ? styles.slotChipSelected : null]}
+                            style={[
+                              styles.slotChip,
+                              isSelected ? styles.slotChipSelected : null,
+                            ]}
                             onPress={() => setSelectedSlotStartAt(slot.startAt)}
                             accessibilityRole="button"
                             accessibilityState={{ selected: isSelected }}
                             accessibilityLabel={formatSlotLabel(slot)}
                           >
-                            <Text style={[styles.slotLabel, isSelected ? styles.slotLabelSelected : null]}>
+                            <Text
+                              style={[
+                                styles.slotLabel,
+                                isSelected ? styles.slotLabelSelected : null,
+                              ]}
+                            >
                               {formatSlotStart(slot)}
                             </Text>
                           </Pressable>
@@ -1027,7 +1238,9 @@ export function AppointmentDetailScreen() {
 
               <View style={styles.modalFooter}>
                 <AuthButton
-                  label={busyAction === "reschedule" ? "Saving…" : "Confirm new time"}
+                  label={
+                    busyAction === "reschedule" ? "Saving…" : "Confirm new time"
+                  }
                   disabled={!selectedSlotStartAt || busyAction === "reschedule"}
                   loading={busyAction === "reschedule"}
                   onPress={() => void handleReschedule()}
