@@ -11,6 +11,16 @@ const projectId = "ca508477-5d3d-40ff-9f9c-6c0faae889bf";
 let registrationGeneration = 0;
 let enablingGeneration: number | null = null;
 type Registration = { userId: string; token: string; platform: string };
+
+async function requestDeviceToken() {
+  try {
+    return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  } catch {
+    throw new Error(
+      "Could not set up notifications on this device. Check your connection and try again.",
+    );
+  }
+}
 export async function getPushRegistration(): Promise<Registration | null> {
   if (Platform.OS === "web") return null;
   const raw = await SecureStore.getItemAsync(key);
@@ -51,7 +61,7 @@ export async function enablePush(userId: string) {
       throw new Error(
         "Notifications are not permitted. You can enable them in your device’s settings.",
       );
-    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    const token = await requestDeviceToken();
     assertCurrent();
     await registerPushDevice(token, Platform.OS, accessToken);
     assertCurrent();
@@ -74,7 +84,7 @@ export async function refreshPushRegistration(userId: string) {
     await disablePush(userId);
     return;
   }
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  const token = await requestDeviceToken();
   if (
     !accessToken ||
     generation !== registrationGeneration ||

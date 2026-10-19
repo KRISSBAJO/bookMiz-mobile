@@ -10,7 +10,8 @@ function fixture(platform = "ios") {
   let accessToken = "account-a-token",
     granted = false,
     prompted = 0,
-    tokenWait = null;
+    tokenWait = null,
+    tokenError = null;
   const dependencies = {
     "expo-secure-store": {
       getItemAsync: async (key) => saved.get(key) || null,
@@ -31,6 +32,7 @@ function fixture(platform = "ios") {
         return { granted };
       },
       getExpoPushTokenAsync: async () => {
+        if (tokenError) throw tokenError;
         if (tokenWait) await tokenWait;
         return { data: "ExponentPushToken[fixture]" };
       },
@@ -63,6 +65,7 @@ function fixture(platform = "ios") {
     wait: (value) => {
       tokenWait = value;
     },
+    failToken: (error) => { tokenError = error; },
     get prompts() {
       return prompted;
     },
@@ -117,6 +120,20 @@ test("resuming from the permission prompt does not cancel an explicit enable", a
   await enabling;
   assert.equal((await f.api.getPushRegistration()).userId, "a");
   assert.equal(f.calls.filter((call) => call[0] === "register").length, 1);
+});
+
+test("device-token service failures are readable and leave registration retryable", async () => {
+  const f = fixture("android");
+  f.setPermission(true);
+  f.failToken(new Error("java.io.IOException: SERVICE_NOT_AVAILABLE"));
+  await assert.rejects(f.api.enablePush("a"), {
+    message: "Could not set up notifications on this device. Check your connection and try again.",
+  });
+  assert.equal(f.saved.size, 0);
+  assert.equal(f.calls.filter((call) => call[0] === "register").length, 0);
+  f.failToken(null);
+  await f.api.enablePush("a");
+  assert.equal((await f.api.getPushRegistration()).userId, "a");
 });
 test("a permission revocation unregisters without reprompting and an account switch cancels a late token", async () => {
   const f = fixture();
