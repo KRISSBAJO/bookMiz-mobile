@@ -34,7 +34,7 @@
     "testing": {
       "extends": "preview",
       "distribution": "store",
-      "autoIncrement": true,
+      "autoIncrement": false,
       "ios": {},
       "android": {
         "buildType": "apk"

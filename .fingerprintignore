@@ -1,0 +1,5 @@
+# Native projects are generated from app config and native dependencies by Expo prebuild.
+android
+android/**/*
+ios
+ios/**/*
