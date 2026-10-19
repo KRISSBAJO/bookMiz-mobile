@@ -29,6 +29,12 @@ the matching Android Firebase configuration via the `GOOGLE_SERVICES_JSON` EAS
 file variable (or an untracked local `google-services.json`). Keep backend push
 dispatch disabled until credentials and native delivery are verified.
 
+The Android Firebase app is registered in `bookmiz-8a0a9` as
+`com.bookmiz.customeragent` (BookMiz Android). Its verified client configuration
+is saved locally as the ignored `google-services.json`; Expo config picks it up
+without generating a native project or starting a build. A client config file
+does not replace the separate FCM v1 server credential required by EAS.
+
 Push alerts deliberately omit message and payment content. Delivery is queued
 and current session/notification access is checked again before dispatch.
 Drafts are scoped to each account and encrypted with SecureStore on devices;
