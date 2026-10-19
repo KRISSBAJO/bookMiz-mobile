@@ -230,10 +230,11 @@ export function NativeBookingScreen() {
     : undefined;
 
   const priceLabel =
-    service && profile?.provider.currencyCode
+    service?.currencyCode
       ? new Intl.NumberFormat(undefined, {
           style: "currency",
-          currency: profile.provider.currencyCode,
+          currency: service.currencyCode,
+          currencyDisplay: "code",
         }).format(service.priceCents / 100)
       : null;
 
@@ -375,6 +376,8 @@ export function NativeBookingScreen() {
       const result = await createCustomerBooking({
         providerId: profile.provider.id,
         serviceId: service.id,
+        expectedPriceCents: service.priceCents,
+        expectedCurrencyCode: service.currencyCode,
         startsAt: selected.startAt,
         assignedStaffId: staffId || undefined,
         locationId: selected.locationId,
@@ -569,8 +572,8 @@ export function NativeBookingScreen() {
                     </Text>
                     <Text style={styles.choiceMeta} numberOfLines={1}>
                       {value.durationMinutes} min
-                      {profile?.provider.currencyCode
-                        ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: profile.provider.currencyCode }).format(value.priceCents / 100)}`
+                      {value.currencyCode
+                        ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: value.currencyCode, currencyDisplay: "code" }).format(value.priceCents / 100)}`
                         : ""}
                     </Text>
                   </View>

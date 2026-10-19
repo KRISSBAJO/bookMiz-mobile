@@ -85,7 +85,8 @@ const defaultAccountForm: AccountFormState = {
   payoutNotes: "",
 };
 
-function formatMoney(value: number, currencyCode = "USD") {
+function formatMoney(value: number, currencyCode?: string) {
+  if (!currencyCode) return "Currency unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currencyCode,

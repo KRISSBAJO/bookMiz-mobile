@@ -33,18 +33,20 @@ export function formatPriceTier(label?: string | null) {
 
 /**
  * Real amount first; the tier label ("$$") only when no amount is known.
- * `currencyCode` defaults to USD because all marketplace prices are stored in cents of the provider's currency.
+ * Currency must accompany its stored amount; never infer it from a business profile.
  */
 export function formatMarketplacePrice(
   value?: number | null,
   fallback?: string | null,
-  currencyCode: string = "USD",
+  currencyCode?: string,
 ) {
   if (value !== null && value !== undefined) {
+    if (!currencyCode || !/^[A-Z]{3}$/.test(currencyCode)) return "Currency unavailable";
     try {
       return new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: currencyCode,
+        currencyDisplay: "code",
       }).format(value / 100);
     } catch {
       return `${currencyCode} ${(value / 100).toFixed(2)}`;

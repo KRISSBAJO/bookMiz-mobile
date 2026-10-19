@@ -28,7 +28,8 @@ export function formatBookingTimeLabel(value: string) {
   });
 }
 
-export function formatBookingMoney(amount: number, currency = "USD") {
+export function formatBookingMoney(amount: number, currency?: string) {
+  if (!currency) return "Currency unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,

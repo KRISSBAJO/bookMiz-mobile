@@ -40,6 +40,8 @@ export type CreatedMobileBooking = {
 };
 
 export function createCustomerBooking(payload: {
+  expectedPriceCents?: number;
+  expectedCurrencyCode?: string;
   providerId: string;
   serviceId: string;
   startsAt: string;

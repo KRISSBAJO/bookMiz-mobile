@@ -548,7 +548,7 @@ export function HomeScreen() {
                           <View key={service.id} style={styles.servicePill}>
                             <Text style={styles.servicePillText}>
                               {service.name}{" "}
-                              {formatMarketplacePrice(service.priceCents)}
+                              {formatMarketplacePrice(service.priceCents, null, service.currencyCode)}
                             </Text>
                           </View>
                         ))}

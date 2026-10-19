@@ -21,6 +21,7 @@ function screen(name, overrides = {}) {
     DeviceEventEmitter: { addListener: () => ({ remove() {} }) },
     Alert: { alert() {} },
     View: "View",
+    Image: "Image",
     Text: "Text",
     TextInput: "TextInput",
     Pressable: "Pressable",
@@ -41,6 +42,7 @@ function screen(name, overrides = {}) {
     }),
     StyleSheet: { create: (value) => value },
     Linking: { openURL: async () => {} },
+    Share: { share: async () => ({ action: "dismissedAction" }) },
     Animated: {
       Value: class {},
       View: "AnimatedView",
@@ -49,6 +51,7 @@ function screen(name, overrides = {}) {
       timing() {},
     },
   };
+  Object.assign(native, overrides.__native);
   const authButton = (props) => React.createElement("Button", props);
   const deps = {
     react: React,
@@ -63,6 +66,9 @@ function screen(name, overrides = {}) {
     },
     "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
     "@expo/vector-icons": { FontAwesome6: "Icon" },
+    "expo-status-bar": { StatusBar: "StatusBar" },
+    "@/src/lib/mobile-env": { mobileEnv: { webAppUrl: "https://www.bookmiz.com" } },
+    "@/src/lib/public-business-links": utility("public-business-links"),
     "@/src/components/Screen": {
       Screen: (props) => React.createElement("Screen", props, props.children),
     },
@@ -193,13 +199,14 @@ function bookingFixture(overrides = {}) {
     id: "provider",
     displayName: "Fixture",
     timezone: "UTC",
-    currencyCode: "USD",
+    currencyCode: "NGN",
   };
   const service = {
     id: "service",
     name: "Haircut",
     durationMinutes: 30,
     priceCents: 4550,
+    currencyCode: "USD",
     availableChannels: ["IN_PERSON"],
     defaultChannel: "IN_PERSON",
     intakeFields: [],
@@ -302,6 +309,28 @@ test("late availability for a previous day never replaces the newly selected day
   await act(async () => {
     tree.unmount();
   });
+});
+
+test("business profile always opens and shares its BookMiz page, hiding placeholder external websites", async () => {
+  const opened = [], shared = [];
+  // Only native link/share boundaries are mocked; the actual screen and URL policy render here.
+  const profile = { provider: { id: "provider", slug: "business", displayName: "Test Studio", websiteUrl: "https://fadelab.example.com", currencyCode: "NGN", lowestPriceCents: null },
+    hours: { todayLabel: "Closed", week: [] }, gallery: [], services: { suggested: [], groups: [] },
+    reviewSummary: { totalReviews: 0, reviews: [] } };
+  const Provider = screen("ProviderDetailScreen", {
+    "@/src/store/session-context": { useSession: () => ({ isSignedIn: false }) },
+    "@/src/lib/api/marketplace": { getMarketplaceProvider: async () => profile },
+    "@/src/lib/marketplace-display": { formatMarketplacePrice: () => "", formatPriceTier: () => "", formatMarketplaceDistance: () => "", getMarketplaceLocationLabel: () => "", resolveMarketplaceImage: () => ({ uri: "photo" }) },
+    __native: { Linking: { openURL: async (url) => { opened.push(url); } }, Share: { share: async (payload) => { shared.push(payload); return {}; } } },
+  });
+  let tree;
+  await act(async () => { tree = create(React.createElement(Provider)); });
+  assert.ok(!labels(tree.root).includes("Website"));
+  await act(async () => { await tree.root.findAllByType("Pressable").find((node) => node.props.accessibilityLabel === "Open Test Studio's BookMiz business page").props.onPress(); });
+  assert.equal(opened[0], "https://www.bookmiz.com/marketplace/providers/business");
+  await act(async () => { await tree.root.findAllByType("Pressable").find((node) => node.props.accessibilityLabel === "Share Test Studio's business page").props.onPress(); });
+  assert.equal(shared[0].url, opened[0]);
+  await act(async () => tree.unmount());
 });
 
 test("quote acceptance is offered only for unlocked matches on an active, unselected request", async () => {
@@ -640,4 +669,13 @@ test("account deletion requires confirmation, displays its review reference and 
       .some((node) => node.props.label === "Request account deletion"),
   );
   await act(async () => tree.unmount());
+});
+
+
+test("native booking displays the service USD price even when the business profile is NGN", async () => {
+  const Booking = bookingFixture(); let tree;
+  await act(async () => { tree = create(React.createElement(Booking)); });
+  const text = labels(tree.root).join(" ");
+  assert.match(text, /USD/); assert.match(text, /45\.50/); assert.doesNotMatch(text, /NGN/);
+  await act(async () => { tree.unmount(); });
 });

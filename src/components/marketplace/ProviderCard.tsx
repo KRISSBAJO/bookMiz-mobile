@@ -15,10 +15,10 @@ export function priceLineFor(provider: MarketplaceProviderCard) {
   // Services priced at 0 are placeholders; never show "$0".
   const topService = provider.topServices.find((service) => service.priceCents > 0);
   if (topService) {
-    return `${topService.name} · ${formatMarketplacePrice(topService.priceCents, null, provider.currencyCode)}`;
+    return `${topService.name} · ${formatMarketplacePrice(topService.priceCents, null, topService.currencyCode)}`;
   }
   if (provider.lowestPriceCents) {
-    return `From ${formatMarketplacePrice(provider.lowestPriceCents, null, provider.currencyCode)}`;
+    return `From ${formatMarketplacePrice(provider.lowestPriceCents, null, provider.lowestPriceCurrencyCode)}`;
   }
   return "Tap to see services";
 }
