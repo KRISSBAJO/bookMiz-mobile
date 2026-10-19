@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -48,21 +49,24 @@ const quickActions: Array<{
   label: string;
   icon: IconName;
   route: string;
+  description: string;
 }> = [
   {
     id: "book",
     label: "Book",
     icon: "calendar-plus",
     route: "/(tabs)/explore",
+    description: "Find and book a provider",
   },
   {
     id: "quote",
     label: "Get quote",
     icon: "comment-dollar",
     route: "/(tabs)/workbench",
+    description: "Tell us what you need",
   },
-  { id: "bookings", label: "Bookings", icon: "clock", route: "/appointments" },
-  { id: "saved", label: "Saved", icon: "heart", route: "/saved-providers" },
+  { id: "bookings", label: "Bookings", icon: "calendar-check", route: "/appointments", description: "Manage your appointments" },
+  { id: "saved", label: "Saved", icon: "heart", route: "/saved-providers", description: "Your favourite providers" },
 ];
 
 function greetingFor(date: Date) {
@@ -128,6 +132,7 @@ function initialsFor(
 }
 
 export function HomeScreen() {
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const session = useSession();
   const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>(
@@ -410,24 +415,32 @@ export function HomeScreen() {
             </Pressable>
           ) : null}
 
+          <View style={styles.section}>
+          <Text style={styles.quickTitle}>Quick actions</Text>
           <View style={styles.actionRow}>
             {quickActions.map((action) => (
               <Pressable
                 key={action.id}
                 onPress={() => router.push(action.route as never)}
                 accessibilityRole="button"
-                style={styles.action}
+                accessibilityLabel={`${action.label}: ${action.description}`}
+                style={({ pressed }) => [styles.action, { flexBasis: width >= 700 ? "22%" : "46%" }, action.id === "book" && styles.actionPrimary, pressed && { opacity: .8 }]}
               >
-                <View style={styles.actionIcon}>
+                <View style={styles.actionTop}>
+                <View style={[styles.actionIcon, action.id === "book" && styles.actionIconPrimary]}>
                   <FontAwesome6
                     name={action.icon}
-                    size={20}
+                    size={19}
                     color={tokens.colors.inkDeep}
                   />
                 </View>
-                <Text style={styles.actionLabel}>{action.label}</Text>
+                <FontAwesome6 name="arrow-right" size={12} color={action.id === "book" ? "#d6e4f5" : tokens.colors.muted} />
+                </View>
+                <Text style={[styles.actionLabel, action.id === "book" && styles.actionLabelPrimary]}>{action.label}</Text>
+                <Text style={[styles.actionDescription, action.id === "book" && styles.actionDescriptionPrimary]}>{action.description}</Text>
               </Pressable>
             ))}
+          </View>
           </View>
 
           {categories.length > 0 ? (
@@ -844,19 +857,31 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
+    flexWrap: "wrap",
+    gap: 12,
   },
+  quickTitle: { color: tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 17 },
+  actionTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  actionPrimary: { backgroundColor: tokens.colors.inkDeep, borderColor: tokens.colors.inkDeep },
+  actionIconPrimary: { backgroundColor: tokens.colors.brand, borderColor: tokens.colors.brand },
+  actionLabelPrimary: { color: "#ffffff" },
+  actionDescription: { color: tokens.colors.muted, fontFamily: tokens.font.regular, fontSize: 12, lineHeight: 18 },
+  actionDescriptionPrimary: { color: "#d6e4f5" },
   action: {
-    flex: 1,
-    alignItems: "center",
-    gap: 8,
-  },
-  actionIcon: {
-    width: 56,
-    height: 56,
+    flexGrow: 1,
+    minHeight: 132,
+    padding: 16,
     borderRadius: 18,
     backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    gap: 3,
+  },
+  actionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: tokens.colors.surfaceSoft,
     borderWidth: 1,
     borderColor: tokens.colors.border,
     alignItems: "center",
@@ -864,7 +889,7 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     color: tokens.colors.ink,
-    fontSize: 12,
+    fontSize: 16,
     fontFamily: tokens.font.semibold,
   },
   section: {

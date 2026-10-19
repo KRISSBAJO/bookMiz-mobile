@@ -1,5 +1,9 @@
 import { useFocusEffect } from "expo-router/react-navigation";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { FontAwesome6 } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { AuthButton } from "@/src/components/auth/AuthButton";
+import { notificationCategory, notificationDestination } from "@/src/lib/notification-destination";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -7,6 +11,7 @@ import {
   Linking,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -94,6 +99,8 @@ function SkeletonRows() {
 }
 
 export function InboxScreen() {
+  const router = useRouter();
+  const [detailError, setDetailError] = useState<string | null>(null);
   const { notificationId } = useLocalSearchParams<{
     notificationId?: string;
   }>();
@@ -179,6 +186,7 @@ export function InboxScreen() {
       try {
         await markInboxNotificationRead(notificationId);
       } catch {
+        setDetailError("Could not mark this update as read. Your message is still available.");
         await loadInbox();
       }
     },
@@ -192,6 +200,7 @@ export function InboxScreen() {
       .then((item) => {
         if (active) {
           setOpened(item);
+          setDetailError(null);
           if (!item.readAt) void handleMarkRead(item.id);
         }
       })
@@ -240,6 +249,7 @@ export function InboxScreen() {
                   pressed ? styles.rowPressed : null,
                 ]}
                 onPress={() => {
+                  setDetailError(null);
                   setOpened(notification);
                   if (!notification.readAt)
                     void handleMarkRead(notification.id);
@@ -296,42 +306,35 @@ export function InboxScreen() {
         animationType="slide"
         onRequestClose={() => setOpened(null)}
       >
-        <Screen title="Notification" showBack={false}>
-          <Pressable accessibilityRole="button" onPress={() => setOpened(null)}>
-            <Text style={styles.errorRetry}>Close</Text>
-          </Pressable>
-          <Text style={styles.title}>{opened?.title}</Text>
-          <Text selectable style={styles.message}>
-            {opened?.body}
-          </Text>
-          <Text style={styles.time}>
-            {opened ? new Date(opened.createdAt).toLocaleString() : ""}
-          </Text>
-          {opened?.actionUrl ? (
-            <Pressable
-              accessibilityRole="link"
-              onPress={async () => {
+        <SafeAreaView style={styles.detailSafe}>
+          <View style={styles.detailShell}>
+            <View style={styles.detailHeader}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close notification" style={styles.detailBack} onPress={() => setOpened(null)}><FontAwesome6 name="arrow-left" size={18} color={tokens.colors.ink} /></Pressable>
+              <View><Text style={styles.detailEyebrow}>INBOX</Text><Text style={styles.detailHeaderTitle}>Notification</Text></View>
+            </View>
+            <ScrollView contentContainerStyle={styles.detailContent}>
+              <View style={styles.detailCard}>
+                <View style={styles.detailIcon}><FontAwesome6 name={notificationCategory(opened?.eventKey ?? "").icon} size={24} color={tokens.colors.inkDeep} /></View>
+                <Text style={styles.detailCategory}>{notificationCategory(opened?.eventKey ?? "").label}</Text>
+                <Text accessibilityRole="header" style={styles.detailTitle}>{opened?.title}</Text>
+                <View style={styles.detailDate}><FontAwesome6 name="clock" size={12} color={tokens.colors.muted} /><Text style={styles.time}>{opened ? new Date(opened.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</Text></View>
+                <View style={styles.detailDivider} />
+                <Text selectable style={styles.detailBody}>{opened?.body}</Text>
+              </View>
+              {detailError ? <Text accessibilityRole="alert" style={styles.errorText}>{detailError}</Text> : null}
+            </ScrollView>
+            <View style={styles.detailFooter}>
+              {opened && notificationDestination(opened) ? <AuthButton label={notificationDestination(opened)!.label} icon="arrow-right" variant="navy" onPress={async () => {
+                const destination = notificationDestination(opened);
+                if (!destination) return;
                 try {
-                  const url = new URL(
-                    opened.actionUrl!,
-                    "https://www.bookmiz.com",
-                  );
-                  if (
-                    url.protocol !== "https:" ||
-                    !["www.bookmiz.com", "bookmiz.com"].includes(url.hostname)
-                  )
-                    throw new Error("Unsupported notification link.");
-                  await Linking.openURL(url.toString());
-                } catch {
-                  setOpened(null);
-                  setError("Could not open this notification’s destination.");
-                }
-              }}
-            >
-              <Text style={styles.errorRetry}>View in BookMiz website</Text>
-            </Pressable>
-          ) : null}
-        </Screen>
+                  if (destination.native) { setOpened(null); router.push(destination.route as never); }
+                  else await Linking.openURL(destination.route);
+                } catch { setDetailError("Could not open this update. Please try again."); }
+              }} /> : <AuthButton label="Back to Inbox" variant="secondary" onPress={() => setOpened(null)} />}
+            </View>
+          </View>
+        </SafeAreaView>
       </Modal>
       {!isLoading && notifications.length === 0 && !error ? (
         <View style={styles.emptyCard}>
@@ -360,6 +363,21 @@ export function InboxScreen() {
 }
 
 const styles = StyleSheet.create({
+  detailSafe: { flex: 1, backgroundColor: tokens.colors.surface },
+  detailShell: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" },
+  detailHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.colors.border },
+  detailBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center", backgroundColor: "#ffffff", borderRadius: 15 },
+  detailEyebrow: { color: tokens.colors.muted, fontFamily: tokens.font.semibold, fontSize: 10, letterSpacing: 1 },
+  detailHeaderTitle: { color: tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 17 },
+  detailContent: { padding: 20, gap: 16 },
+  detailCard: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: tokens.colors.border, borderRadius: 22, padding: 24, gap: 14 },
+  detailIcon: { width: 60, height: 60, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: tokens.colors.brandSoft },
+  detailCategory: { color: tokens.colors.muted, fontFamily: tokens.font.medium, fontSize: 12 },
+  detailTitle: { color: tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 22, lineHeight: 29 },
+  detailDate: { flexDirection: "row", alignItems: "center", gap: 8 },
+  detailDivider: { height: 1, backgroundColor: tokens.colors.border, marginVertical: 6 },
+  detailBody: { color: tokens.colors.ink, fontFamily: tokens.font.regular, fontSize: 15, lineHeight: 25 },
+  detailFooter: { padding: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.colors.border, backgroundColor: "#ffffff" },
   list: {
     gap: 12,
   },
