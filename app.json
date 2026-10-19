@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.bookmiz",
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +24,7 @@
         "backgroundColor": "#132849"
       },
       "package": "com.bookmiz.customeragent",
-      "versionCode": 1,
+      "versionCode": 2,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -41,10 +41,16 @@
     "experiments": {
       "typedRoutes": true
     },
-    "extra": { "eas": { "projectId": "ca508477-5d3d-40ff-9f9c-6c0faae889bf" } },
+    "extra": {
+      "eas": {
+        "projectId": "ca508477-5d3d-40ff-9f9c-6c0faae889bf"
+      }
+    },
     "updates": {
       "url": "https://u.expo.dev/ca508477-5d3d-40ff-9f9c-6c0faae889bf"
     },
-    "runtimeVersion": { "policy": "fingerprint" }
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
   }
 }
