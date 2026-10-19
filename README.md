@@ -130,3 +130,11 @@ admin-review change remains a separate deployment concern.
 The active preview binaries use Android runtime `b458e56796edaa9a0aebce320d6c491163561b33` and iOS runtime `8c9848a7e198a913d8d8d10b79445326921c0f70`. The maintenance branch `codex/mobile-preview-20261019` preserves their matching configuration and current JS updates. Publish updates for these binaries from that branch and verify both fingerprints first. Main corrects the App Store submission target to 6759222510; EAS includes eas.json in its fingerprint, so main's next native baseline has a different fingerprint. Do not build or submit from the maintenance branch; use main for the next native baseline and store submission. Never override a runtime merely to force an update onto an incompatible binary.
 
 Public release remains on hold until actual iOS and Android notification delivery and update restart checks are complete.
+
+### Profile review follow-up, October 19
+
+- Account profile layout now uses a constrained tablet width, compact contact rows, a heading-level secondary Edit profile action, and explicit device notification status. The name is displayed once; contact details remain selectable and the whole screen scrolls.
+- Preview-only layout update: Android group `69569f9d-11f7-4cb9-98d3-e066bedb5a9d`, iOS group `46a6437a-6dcd-48d0-a672-ceedc28fe407`, source `e57ee1e` (main equivalent `0810582`). Both native fingerprints match the existing test binaries. No new native build was triggered.
+- Physical Android tester successfully registered the demo customer's device. A scoped test notification was sent through the deployed worker; Expo/Firebase receipt status is `RECEIPT_OK` after one attempt. The tester confirmed seeing the Android alert (“You have a new update”). Tap navigation still requires confirmation.
+- Installed Android downloaded and applied the profile update using Check for updates → Restart to update, retaining sign-in. Profile display, Edit profile and Cancel were exercised. Phone and tablet-width screenshots were inspected; the tablet content is constrained and phone labels remain readable.
+- TypeScript and all 43 mobile tests pass.
