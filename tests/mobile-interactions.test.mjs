@@ -27,8 +27,13 @@ function screen(name, overrides = {}) {
     Switch: "Switch",
     Modal: "Modal",
     ActivityIndicator: "ActivityIndicator",
+    Keyboard: { dismiss() {} },
+    FlatList: React.forwardRef((props, ref) => {
+      React.useImperativeHandle(ref, () => ({ scrollToEnd() {} }));
+      return React.createElement("FlatList", props, props.data?.length ? props.data.map((item, index) => React.createElement(React.Fragment, { key: item.id }, props.renderItem({ item, index }))) : props.ListEmptyComponent);
+    }),
     KeyboardAvoidingView: "KeyboardAvoidingView",
-    Platform: { OS: "ios" },
+    Platform: { OS: overrides.__platform ?? "ios" },
     AppState: { currentState: "active" },
     ScrollView: React.forwardRef((props, ref) => {
       React.useImperativeHandle(ref, () => ({ scrollToEnd() {} }));
@@ -76,8 +81,15 @@ function screen(name, overrides = {}) {
       useSavedDraft: () => ({ draftError: null, clearDraft: async () => {} }),
     },
     "@/src/theme/tokens": { tokens: { colors: {}, font: {}, radius: {} } },
+    "@/src/lib/notification-destination": utility("notification-destination"),
     ...overrides,
   };
+  if (name === "WorkbenchScreen") {
+    const chat = {};
+    const chatCode = ts.transpileModule(readFileSync(new URL('../src/components/QuoteChatModal.tsx', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+    new Function('require', 'exports', chatCode)((key) => { if (key in deps) return deps[key]; throw Error(`Missing chat mock ${key}`); }, chat);
+    deps['@/src/components/QuoteChatModal'] = chat;
+  }
   const code = ts.transpileModule(
     readFileSync(
       new URL(`../src/screens/${name}.tsx`, import.meta.url),
@@ -318,6 +330,7 @@ test("chat opens as a modal, keeps conversation drafts separate and preserves te
     conversations,
   };
   const Workbench = screen("WorkbenchScreen", {
+    __platform: "android",
     __setInterval: (callback) => {
       poll = callback;
       return 0;
@@ -351,6 +364,8 @@ test("chat opens as a modal, keeps conversation drafts separate and preserves te
     tree.root
       .findAllByType("TextInput")
       .find((node) => node.props.accessibilityLabel === "Reply");
+  assert.ok(tree.root.findAllByType('KeyboardAvoidingView').some((node) => node.props.behavior === 'height'));
+  for (let ancestor = input(); ancestor; ancestor = ancestor.parent) assert.notEqual(ancestor.type, 'FlatList', 'composer must remain outside the scrolling history');
   await act(async () => {
     input().props.onChangeText("Draft A");
   });
@@ -410,6 +425,14 @@ test("chat opens as a modal, keeps conversation drafts separate and preserves te
   await act(async () => {
     tree.unmount();
   });
+});
+
+test('notification actions open matching native screens and reject untrusted destinations', () => {
+  const { notificationDestination } = utility('notification-destination');
+  const id = '11111111-1111-4111-8111-111111111111';
+  assert.equal(notificationDestination({ actionUrl: `/customer/quotes?quoteRequestId=${id}` }).route, `/(tabs)/workbench?requestId=${id}`);
+  assert.equal(notificationDestination({ actionUrl: `/customer/appointments?booking=${id}` }).route, `/appointments/${id}`);
+  for (const actionUrl of ['javascript:alert(1)', 'http://bookmiz.com/customer/quotes', 'https://evil.example/customer/quotes', 'https://bookmiz.com.evil.example/']) assert.equal(notificationDestination({ actionUrl }), null);
 });
 
 test("security password changes rotate the mobile session and clear password inputs", async () => {

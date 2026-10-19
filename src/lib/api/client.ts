@@ -72,6 +72,7 @@ async function parseResponse<T>(response: Response) {
         ? payload.error.message
         : "Something went wrong. Please try again.",
       {
+        retryAfterSeconds: response.status === 429 ? Number(response.headers?.get?.("retry-after")) || undefined : undefined,
         statusCode:
           payload && "error" in payload
             ? payload.error.statusCode

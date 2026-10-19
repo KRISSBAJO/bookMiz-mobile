@@ -18,6 +18,7 @@ export type ApiErrorEnvelope = {
 };
 
 export class ApiRequestError extends Error {
+  retryAfterSeconds?: number;
   statusCode?: number;
   details?: Array<{ field?: string; message: string }>;
 
@@ -25,12 +26,14 @@ export class ApiRequestError extends Error {
     message: string,
     options?: {
       statusCode?: number;
+      retryAfterSeconds?: number;
       details?: Array<{ field?: string; message: string }>;
     },
   ) {
     super(message);
     this.name = "ApiRequestError";
     this.statusCode = options?.statusCode;
+    this.retryAfterSeconds = options?.retryAfterSeconds;
     this.details = options?.details;
   }
 }

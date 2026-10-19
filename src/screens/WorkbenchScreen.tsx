@@ -1,7 +1,7 @@
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,6 +23,7 @@ import { AuthButton } from "@/src/components/auth/AuthButton";
 import { AuthField } from "@/src/components/auth/AuthField";
 import { Screen } from "@/src/components/Screen";
 import { SectionHeader } from "@/src/components/SectionHeader";
+import { QuoteChatModal } from "@/src/components/QuoteChatModal";
 import { AgentWorkbenchScreen } from "@/src/screens/AgentWorkbenchScreen";
 import {
   acceptCustomerQuoteMatch,
@@ -203,18 +204,6 @@ function formatTimeLabel(value?: string | null) {
   });
 }
 
-function messageSenderLabel(
-  message: CustomerQuoteConversation["messages"][number],
-  conversation: CustomerQuoteConversation,
-) {
-  const isRequester =
-    message.senderRole === "REQUESTER" ||
-    (!!conversation.requesterEmail &&
-      message.senderEmail === conversation.requesterEmail);
-
-  return isRequester ? "You" : message.senderName;
-}
-
 function getInitials(value: string) {
   return value
     .split(" ")
@@ -234,12 +223,14 @@ export function WorkbenchScreen() {
 }
 
 function CustomerWorkbenchScreen() {
+  const router = useRouter();
   const session = useSession();
   const params = useLocalSearchParams<{
     service?: string;
     city?: string;
     provider?: string;
     description?: string;
+    requestId?: string;
   }>();
 
   const [templates, setTemplates] = useState<MarketplaceRequestTemplate[]>([]);
@@ -299,7 +290,10 @@ function CustomerWorkbenchScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const workspaceGeneration = useRef(0);
   const workspaceLoading = useRef(false);
-  const chatScroll = useRef<ScrollView>(null);
+  const pollAfter = useRef(0);
+  const sendingRef = useRef(false);
+  const [chatErrors, setChatErrors] = useState<Record<string, string | null>>({});
+  const [syncIssue, setSyncIssue] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -372,7 +366,7 @@ function CustomerWorkbenchScreen() {
       if (!session.user) {
         return;
       }
-      if (silent && workspaceLoading.current) return;
+      if (silent && (workspaceLoading.current || Date.now() < pollAfter.current)) return;
       workspaceLoading.current = true;
 
       const generation = ++workspaceGeneration.current;
@@ -383,7 +377,7 @@ function CustomerWorkbenchScreen() {
         }
 
         const [nextTemplates, nextRequests] = await Promise.all([
-          listMarketplaceRequestTemplates({ serviceModel: "LOCAL" }),
+          silent ? Promise.resolve(null) : listMarketplaceRequestTemplates({ serviceModel: "LOCAL" }),
           listCustomerQuoteRequests({
             requesterUserId: session.user.id,
             requesterEmail: session.user.email,
@@ -392,7 +386,8 @@ function CustomerWorkbenchScreen() {
         ]);
 
         if (generation !== workspaceGeneration.current) return;
-        setTemplates(nextTemplates);
+        if (nextTemplates) setTemplates(nextTemplates);
+        setSyncIssue(null);
         setRequests(nextRequests);
         setSelectedRequestId((current) =>
           current && nextRequests.some((request) => request.id === current)
@@ -400,6 +395,10 @@ function CustomerWorkbenchScreen() {
             : (nextRequests[0]?.id ?? null),
         );
       } catch (nextError) {
+        const status = (nextError as { statusCode?: number })?.statusCode;
+        const retry = (nextError as { retryAfterSeconds?: number })?.retryAfterSeconds;
+        if (status === 429) pollAfter.current = Date.now() + (retry || 30) * 1000;
+        if (silent && generation === workspaceGeneration.current) setSyncIssue("Messages could not refresh. We’ll try again shortly.");
         const message = getFriendlyApiError(
           nextError,
           "We could not load your customer requests.",
@@ -413,7 +412,7 @@ function CustomerWorkbenchScreen() {
         }
       }
     },
-    [filter, session.user],
+    [filter, session.user?.id, session.user?.email],
   );
 
   useFocusEffect(
@@ -421,16 +420,22 @@ function CustomerWorkbenchScreen() {
       void loadWorkspace();
       const timer = setInterval(() => {
         if (AppState.currentState === "active") void loadWorkspace(true);
-      }, 5000);
+      }, chatOpen ? 5000 : 15000);
       return () => {
         clearInterval(timer);
         workspaceGeneration.current += 1;
         workspaceLoading.current = false;
       };
-    }, [loadWorkspace]),
+    }, [loadWorkspace, chatOpen]),
   );
 
   const requestTemplates = templates.length > 0 ? templates : fallbackTemplates;
+  useEffect(() => {
+    if (params.requestId && requests.some((item) => item.id === params.requestId)) {
+      setSelectedRequestId(params.requestId);
+      router.setParams({ requestId: undefined });
+    }
+  }, [params.requestId, requests, router]);
 
   const selectedRequest = useMemo(
     () =>
@@ -462,6 +467,7 @@ function CustomerWorkbenchScreen() {
       ) ?? null,
     [selectedConversationId, selectedRequest],
   );
+  const chatError = selectedConversation ? chatErrors[selectedConversation.id] ?? null : null;
   const messageDraft = selectedConversation
     ? (messageDrafts[selectedConversation.id] ?? "")
     : "";
@@ -898,15 +904,16 @@ function CustomerWorkbenchScreen() {
       !selectedRequest ||
       !selectedConversation ||
       !messageDraft.trim() ||
-      isSendingMessage
+      sendingRef.current
     ) {
       return;
     }
 
     try {
-      setError(null);
+      setChatErrors((current) => ({ ...current, [selectedConversation.id]: null }));
+      sendingRef.current = true;
       setIsSendingMessage(true);
-      await sendRequesterQuoteMessage(
+      const updatedConversation = await sendRequesterQuoteMessage(
         selectedRequest.id,
         selectedConversation.id,
         {
@@ -915,6 +922,11 @@ function CustomerWorkbenchScreen() {
           content: messageDraft.trim(),
         },
       );
+      if (updatedConversation.id && Array.isArray(updatedConversation.messages)) {
+        setRequests((current) => current.map((request) => request.id === selectedRequest.id
+          ? { ...request, conversations: request.conversations.map((item) => item.id === updatedConversation.id ? { ...item, ...updatedConversation, provider: updatedConversation.provider ?? item.provider } : item) }
+          : request));
+      }
       setMessageDrafts((current) =>
         current[selectedConversation.id] === messageDraft
           ? { ...current, [selectedConversation.id]: "" }
@@ -926,8 +938,9 @@ function CustomerWorkbenchScreen() {
         nextError,
         "We could not send your message.",
       );
-      setError(message);
+      setChatErrors((current) => ({ ...current, [selectedConversation.id]: message }));
     } finally {
+      sendingRef.current = false;
       setIsSendingMessage(false);
     }
   }, [
@@ -1286,170 +1299,13 @@ function CustomerWorkbenchScreen() {
               })
             )}
 
-            {selectedConversation ? (
-              <Modal
-                visible={chatOpen}
-                animationType="slide"
-                onRequestClose={() => setChatOpen(false)}
-              >
-                <SafeAreaView
-                  style={{ flex: 1, backgroundColor: tokens.colors.panel }}
-                >
-                  <KeyboardAvoidingView
-                    style={{ flex: 1 }}
-                    behavior={Platform.OS === "ios" ? "padding" : undefined}
-                  >
-                    <View style={{ padding: 16, gap: 12 }}>
-                      <AuthButton
-                        label="Close chat"
-                        variant="secondary"
-                        onPress={() => setChatOpen(false)}
-                      />
-                      {error ? (
-                        <Text
-                          accessibilityRole="alert"
-                          style={styles.errorText}
-                        >
-                          {error}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <ScrollView
-                      ref={chatScroll}
-                      keyboardShouldPersistTaps="handled"
-                      onContentSizeChange={() =>
-                        chatScroll.current?.scrollToEnd({ animated: true })
-                      }
-                      contentContainerStyle={styles.chatCard}
-                    >
-                      {selectedRequest.conversations.length > 1 ? (
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.chatRailScroll}
-                          contentContainerStyle={styles.chatRail}
-                        >
-                          {selectedRequest.conversations.map((conversation) => {
-                            const isActive =
-                              conversation.id === selectedConversation.id;
-                            return (
-                              <Pressable
-                                key={conversation.id}
-                                accessibilityRole="tab"
-                                accessibilityState={{ selected: isActive }}
-                                style={[
-                                  styles.chip,
-                                  isActive ? styles.chipActive : null,
-                                ]}
-                                onPress={() =>
-                                  setSelectedConversationId(conversation.id)
-                                }
-                              >
-                                <Text
-                                  style={[
-                                    styles.chipText,
-                                    isActive ? styles.chipTextActive : null,
-                                  ]}
-                                >
-                                  {conversation.provider?.displayName ??
-                                    "Provider"}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </ScrollView>
-                      ) : (
-                        <Text style={styles.chatTitle}>
-                          {selectedConversation.provider?.displayName ??
-                            "Conversation"}
-                        </Text>
-                      )}
-
-                      <View style={styles.messages}>
-                        {selectedConversation.messages.length === 0 ? (
-                          <Text style={styles.matchHint}>
-                            No messages yet. Say hello.
-                          </Text>
-                        ) : null}
-                        {selectedConversation.messages.map((message) => {
-                          const isRequester =
-                            messageSenderLabel(
-                              message,
-                              selectedConversation,
-                            ) === "You";
-                          return (
-                            <View
-                              key={message.id}
-                              style={[
-                                styles.messageRow,
-                                isRequester ? styles.messageRowRight : null,
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  styles.bubble,
-                                  isRequester
-                                    ? styles.bubbleOwn
-                                    : styles.bubbleOther,
-                                ]}
-                              >
-                                {!isRequester ? (
-                                  <Text style={styles.bubbleSender}>
-                                    {message.senderName}
-                                  </Text>
-                                ) : null}
-                                <Text
-                                  style={[
-                                    styles.bubbleText,
-                                    isRequester ? styles.bubbleTextOwn : null,
-                                  ]}
-                                >
-                                  {message.content}
-                                </Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-
-                      <View style={styles.replyBar}>
-                        <TextInput
-                          value={messageDraft}
-                          onChangeText={setMessageDraft}
-                          placeholder="Write a reply"
-                          placeholderTextColor={tokens.colors.muted}
-                          style={styles.replyInput}
-                          multiline
-                          accessibilityLabel="Reply"
-                        />
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Send"
-                          disabled={isSendingMessage || !messageDraft.trim()}
-                          style={[
-                            styles.sendButton,
-                            isSendingMessage || !messageDraft.trim()
-                              ? styles.sendButtonDisabled
-                              : null,
-                          ]}
-                          onPress={() => void handleSendMessage()}
-                        >
-                          {isSendingMessage ? (
-                            <ActivityIndicator color="#ffffff" />
-                          ) : (
-                            <FontAwesome6
-                              name="paper-plane"
-                              size={16}
-                              color="#ffffff"
-                            />
-                          )}
-                        </Pressable>
-                      </View>
-                    </ScrollView>
-                  </KeyboardAvoidingView>
-                </SafeAreaView>
-              </Modal>
-            ) : null}
+            {selectedConversation ? <QuoteChatModal visible={chatOpen}
+              conversation={selectedConversation} conversations={selectedRequest.conversations}
+              serviceName={selectedRequest.requestedServiceName} draft={messageDraft}
+              sending={isSendingMessage} error={chatError} syncIssue={syncIssue}
+              onClose={() => setChatOpen(false)} onSelect={setSelectedConversationId}
+              onDraftChange={setMessageDraft} onSend={() => void handleSendMessage()}
+              onRefresh={() => void loadWorkspace(true)} /> : null}
           </View>
         ) : null}
       </Screen>
@@ -1469,7 +1325,7 @@ function CustomerWorkbenchScreen() {
           />
           <View style={styles.modalSheetWrap}>
             <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
               style={styles.modalKeyboardWrap}
             >
               <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
@@ -2449,99 +2305,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: tokens.font.regular,
   },
-  chatCard: {
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 14,
-    gap: 12,
-  },
-  chatRailScroll: {
-    marginHorizontal: -14,
-  },
-  chatRail: {
-    gap: 8,
-    paddingHorizontal: 14,
-  },
-  chatTitle: {
-    color: tokens.colors.ink,
-    fontSize: 16,
-    fontFamily: tokens.font.display,
-    letterSpacing: -0.3,
-  },
-  messages: {
-    gap: 8,
-  },
-  messageRow: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-  },
-  messageRowRight: {
-    justifyContent: "flex-end",
-  },
-  bubble: {
-    maxWidth: "82%",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 2,
-  },
-  bubbleOwn: {
-    backgroundColor: tokens.colors.inkDeep,
-    borderBottomRightRadius: 4,
-  },
-  bubbleOther: {
-    backgroundColor: tokens.colors.surface,
-    borderBottomLeftRadius: 4,
-  },
-  bubbleSender: {
-    color: tokens.colors.muted,
-    fontSize: 12,
-    fontFamily: tokens.font.semibold,
-  },
-  bubbleText: {
-    color: tokens.colors.ink,
-    fontSize: 15,
-    lineHeight: 21,
-    fontFamily: tokens.font.regular,
-  },
-  bubbleTextOwn: {
-    color: "#ffffff",
-  },
-  replyBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: tokens.colors.border,
-  },
-  replyInput: {
-    flex: 1,
-    minHeight: 48,
-    maxHeight: 120,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.colors.borderStrong,
-    backgroundColor: tokens.colors.surfaceSoft,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: tokens.colors.ink,
-    fontSize: 15,
-    fontFamily: tokens.font.regular,
-  },
-  sendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: tokens.colors.inkDeep,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendButtonDisabled: {
-    opacity: 0.4,
-  },
   emptyCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -2618,6 +2381,8 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
     height: "92%",
     borderTopLeftRadius: tokens.radius.xl,
     borderTopRightRadius: tokens.radius.xl,
