@@ -524,6 +524,7 @@ export type CustomerBookingRecord = {
   currencyCode?: string;
   paymentStatus?: string;
   paymentMode?: "test" | "live" | null;
+  refundStatus?: string | null;
   depositCents: number | null;
   notes: string | null;
   cancelledReason: string | null;
