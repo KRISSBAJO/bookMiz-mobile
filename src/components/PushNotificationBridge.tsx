@@ -17,7 +17,12 @@ export function PushNotificationBridge() {
     });
     const open = (response: Notifications.NotificationResponse) => {
       const id = response.notification.request.content.data?.notificationId;
-      if (typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))
+      if (
+        typeof id === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          id,
+        )
+      )
         router.push({
           pathname: "/(tabs)/inbox",
           params: { notificationId: id },
@@ -41,7 +46,9 @@ export function PushNotificationBridge() {
       .then((response) => {
         if (active && response) {
           open(response);
-          void Notifications.clearLastNotificationResponseAsync();
+          void Notifications.clearLastNotificationResponseAsync().catch(
+            () => {},
+          );
         }
       })
       .catch(() => {});

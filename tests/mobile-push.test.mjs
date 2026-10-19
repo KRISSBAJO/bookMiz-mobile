@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url),
   ts = require("typescript");
-function fixture() {
+function fixture(platform = "ios") {
   const saved = new Map(),
     calls = [];
   let accessToken = "account-a-token",
@@ -17,11 +17,14 @@ function fixture() {
       setItemAsync: async (key, value) => saved.set(key, value),
       deleteItemAsync: async (key) => saved.delete(key),
     },
-    "react-native": { Platform: { OS: "ios" } },
+    "react-native": { Platform: { OS: platform } },
     "@/src/lib/api/client": {
       getAuthTokens: () => (accessToken ? { accessToken } : null),
     },
     "expo-notifications": {
+      AndroidImportance: { DEFAULT: 3 },
+      setNotificationChannelAsync: async (...args) =>
+        calls.push(["channel", ...args]),
       getPermissionsAsync: async () => ({ granted }),
       requestPermissionsAsync: async () => {
         prompted++;
@@ -89,6 +92,17 @@ test("denied push permission never registers a device; enabling binds it to the 
     "old-account-a-token",
   ]);
   assert.equal(f.saved.size, 0);
+});
+
+test("Android creates its notification channel before requesting a token and registers its platform", async () => {
+  const f = fixture("android");
+  f.setPermission(true);
+  await f.api.enablePush("a");
+  assert.equal(f.calls[0][0], "channel");
+  assert.equal(f.calls[0][1], "default");
+  assert.equal(f.calls[1][0], "register");
+  assert.equal(f.calls[1][2], "android");
+  assert.equal((await f.api.getPushRegistration()).platform, "android");
 });
 test("a permission revocation unregisters without reprompting and an account switch cancels a late token", async () => {
   const f = fixture();

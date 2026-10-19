@@ -13,6 +13,7 @@ import {
 import { AuthButton } from "@/src/components/auth/AuthButton";
 import { PersonaSwitcher } from "@/src/components/PersonaSwitcher";
 import { Screen } from "@/src/components/Screen";
+import { AppUpdatesPanel } from "@/src/components/AppUpdatesPanel";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import type { NotificationPreferences } from "@/src/lib/api/types";
 import { useSession } from "@/src/store/session-context";
@@ -150,7 +151,7 @@ export function AccountScreen() {
     let active = true;
     void getPushRegistration()
       .then((saved) => {
-        if (active) setPushEnabled(saved?.userId === user?.id);
+        if (active) setPushEnabled(Boolean(user?.id && saved?.userId === user.id));
       })
       .catch(() => {});
     return () => {
@@ -535,6 +536,7 @@ export function AccountScreen() {
           }}
         />
       </View>
+      <AppUpdatesPanel />
     </Screen>
   );
 }

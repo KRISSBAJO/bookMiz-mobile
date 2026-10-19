@@ -41,7 +41,9 @@ API Admin on `bookmiz-8a0a9`. A Google validation-only request returned HTTP 200
 no device message was delivered. The Android client config is stored as the
 project-scoped `GOOGLE_SERVICES_JSON` secret file for preview and production.
 The service-account private key is never part of the app or Git repository.
-APNs setup and native end-to-end delivery testing remain release prerequisites.
+iOS APNs is assigned in EAS to `com.anonymous.bookmiz`, using the existing
+same-team key `A6R758W36W` for Apple team `GXRY3YX2NL`. No key was created or
+revoked. Native end-to-end delivery testing remains a release prerequisite.
 
 Push alerts deliberately omit message and payment content. Delivery is queued
 and current session/notification access is checked again before dispatch.
@@ -54,3 +56,49 @@ can submit, track and withdraw it in Security. Super admins review the queue in
 the website's Admin Security page. The matching identity migration is required;
 financial and booking records remain intact while obligations and retention are
 reviewed. No completed status is offered before deletion is actually fulfilled.
+
+## App updates and release status
+
+Account now includes App updates with the installed version, a manual check,
+download progress, connection-error retry and an explicit Restart to update
+action. Background downloads also surface a restart action. Restart is never
+forced while the user is working. Rollbacks to the embedded version use the
+same user-initiated restart flow. Web/development previews explain why native
+OTA is unavailable instead of claiming they are up to date.
+
+This does not bypass native compatibility. EAS serves updates for the installed
+channel and native fingerprint. SDK changes, notification modules, permissions,
+or native configuration need a new binary. No EAS Update has been published.
+
+The latest recorded BookMiz iOS EAS binary is version 1.0.0 (3), SDK 54, from
+February 15, 2026, with no runtime version recorded. The October 12 Android 1.0.0
+installed on the available emulator does not declare POST_NOTIFICATIONS or an
+FCM service. A compatible baseline build is needed before end-to-end notification
+and OTA delivery tests. Builds remain on hold. Existing iOS signing assets shown
+in Expo expire November 6, 2026; refresh those assets before release.
+
+## Completed remediation overview
+
+- Auth: logout/refresh and profile-save races, mobile MFA/recovery login,
+  password changes, verification, authenticator setup and session management.
+- Booking: daily availability after summary failure, stale response guards,
+  date paging, explicit staff selection, cancellation deadlines and payment terms.
+- Requests/chat: encrypted account-scoped drafts, input validation, separate
+  conversation drafts, visible chat modal and incoming-message polling.
+- Inbox/push: readable notification details, cursor paging, read-state errors,
+  tap navigation, foreground refresh and authenticated device registration.
+- Documents: scoped customer upload tokens and authenticated file opening,
+  with temporary-cache cleanup.
+- Agent desk: queue paging, stale-detail guards, bank-resolution checks,
+  currency-separated balances and atomic payout commission claims.
+- Explore/home/account: consistent search filters/paging, visible load errors,
+  profile display and edit behavior, and reliable notification preference saving.
+- Deletion: tracked request, withdrawal/status/reference and admin review queue.
+- Release controls: existing BookMiz Expo/Apple identities, native fingerprints,
+  checks on pushes and native builds only through explicit manual dispatch.
+
+The mobile test suite now has 40 passing tests, including notification behavior
+for mocked iOS/Android modules and six OTA interaction tests. These are automated
+regressions, not proof of delivery to a physical device. The matching backend
+and website changes remain local commits; backend migrations are still required
+before these client features can be released.
