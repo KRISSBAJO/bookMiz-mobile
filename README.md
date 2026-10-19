@@ -35,6 +35,14 @@ is saved locally as the ignored `google-services.json`; Expo config picks it up
 without generating a native project or starting a build. A client config file
 does not replace the separate FCM v1 server credential required by EAS.
 
+Android FCM v1 is configured in EAS for this application identifier using the
+dedicated `bookmiz-expo-push` service account, with only Firebase Cloud Messaging
+API Admin on `bookmiz-8a0a9`. A Google validation-only request returned HTTP 200;
+no device message was delivered. The Android client config is stored as the
+project-scoped `GOOGLE_SERVICES_JSON` secret file for preview and production.
+The service-account private key is never part of the app or Git repository.
+APNs setup and native end-to-end delivery testing remain release prerequisites.
+
 Push alerts deliberately omit message and payment content. Delivery is queued
 and current session/notification access is checked again before dispatch.
 Drafts are scoped to each account and encrypted with SecureStore on devices;
