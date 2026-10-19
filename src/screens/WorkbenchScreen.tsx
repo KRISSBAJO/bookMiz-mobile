@@ -1329,18 +1329,10 @@ function CustomerWorkbenchScreen() {
 
       <Modal
         visible={composerOpen}
-        transparent
         animationType="slide"
         onRequestClose={closeComposer}
       >
-        <View style={styles.modalRoot}>
-          <Pressable
-            style={styles.modalBackdrop}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            onPress={closeComposer}
-          />
-          <View style={styles.modalSheetWrap}>
+        <SafeAreaView style={styles.modalRoot} edges={["top"]}>
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : "height"}
               style={styles.modalKeyboardWrap}
@@ -1983,8 +1975,7 @@ function CustomerWorkbenchScreen() {
                 </View>
               </SafeAreaView>
             </KeyboardAvoidingView>
-          </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal
@@ -2388,14 +2379,8 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(16, 39, 72, 0.45)",
   },
-  modalSheetWrap: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   modalKeyboardWrap: {
     flex: 1,
-    justifyContent: "flex-end",
-    paddingTop: 48,
   },
   modalSheet: {
     width: "100%",
