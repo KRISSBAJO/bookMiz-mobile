@@ -1,4 +1,11 @@
-import type { MarketplaceRequestTemplate } from "@/src/lib/api/types";
+import type { CustomerQuoteRequest, MarketplaceRequestTemplate } from "@/src/lib/api/types";
+
+export function canAcceptQuoteMatch(request: CustomerQuoteRequest, matchId: string): boolean {
+  return (request.status === "OPEN" || request.status === "MATCHED") &&
+    !request.acceptedQuoteMatchId && !request.acceptedProviderId && !request.acceptedAt &&
+    !request.matches.some((match) => match.status === "ACCEPTED") &&
+    request.matches.some((match) => match.id === matchId && match.status === "UNLOCKED");
+}
 
 export type ServiceRequestServiceModel = "LOCAL" | "PROFESSIONAL" | "HYBRID";
 

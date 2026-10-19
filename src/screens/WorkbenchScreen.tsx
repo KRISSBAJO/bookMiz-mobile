@@ -45,6 +45,7 @@ import {
 import {
   buildIntakeResponses,
   buildRequestDescription,
+  canAcceptQuoteMatch,
   formatRequestedChannels,
   getChannelOptionsForServiceModel,
   normalizeRequestedChannels,
@@ -298,6 +299,7 @@ function CustomerWorkbenchScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [acceptingMatchId, setAcceptingMatchId] = useState<string | null>(null);
+  const acceptingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const { draftError, clearDraft } = useSavedDraft(
     session.user ? `${session.user.id}_request` : null,
@@ -955,10 +957,11 @@ function CustomerWorkbenchScreen() {
 
   const handleAcceptMatch = useCallback(
     async (matchId: string) => {
-      if (!selectedRequest) {
+      if (!selectedRequest || acceptingRef.current || !canAcceptQuoteMatch(selectedRequest, matchId)) {
         return;
       }
 
+      acceptingRef.current = true;
       try {
         setError(null);
         setAcceptingMatchId(matchId);
@@ -966,6 +969,16 @@ function CustomerWorkbenchScreen() {
           requesterUserId: session.user?.id,
           requesterEmail: session.user?.email,
         });
+        // Hide every competing acceptance action immediately, even if refreshing fails.
+        workspaceGeneration.current += 1;
+        workspaceLoading.current = false;
+        setRequests((current) => current.map((request) => request.id !== selectedRequest.id ? request : {
+          ...request, status: "ACCEPTED", acceptedQuoteMatchId: matchId,
+          matches: request.matches.map((match) => ({ ...match,
+            status: match.id === matchId ? "ACCEPTED" :
+              match.status === "AVAILABLE" || match.status === "UNLOCKED" ? "EXPIRED" : match.status,
+          })),
+        }));
         await loadWorkspace();
       } catch (nextError) {
         const message = getFriendlyApiError(
@@ -973,7 +986,10 @@ function CustomerWorkbenchScreen() {
           "We could not accept that provider yet.",
         );
         setError(message);
+        // A different device may have already selected a provider.
+        await loadWorkspace(true);
       } finally {
+        acceptingRef.current = false;
         setAcceptingMatchId(null);
       }
     },
@@ -1284,12 +1300,13 @@ function CustomerWorkbenchScreen() {
                           Waiting for a reply
                         </Text>
                       )}
-                      {!isAccepted ? (
+                      {canAcceptQuoteMatch(selectedRequest, match.id) ? (
                         <AuthButton
                           label="Accept"
                           variant="navy"
                           style={styles.matchButton}
                           loading={acceptingMatchId === match.id}
+                          disabled={acceptingMatchId !== null}
                           onPress={() => void handleAcceptMatch(match.id)}
                         />
                       ) : null}
@@ -2378,12 +2395,13 @@ const styles = StyleSheet.create({
   modalKeyboardWrap: {
     flex: 1,
     justifyContent: "flex-end",
+    paddingTop: 48,
   },
   modalSheet: {
     width: "100%",
     maxWidth: 720,
     alignSelf: "center",
-    height: "92%",
+    flex: 1,
     borderTopLeftRadius: tokens.radius.xl,
     borderTopRightRadius: tokens.radius.xl,
     backgroundColor: tokens.colors.surface,
