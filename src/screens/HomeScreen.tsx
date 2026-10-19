@@ -12,7 +12,6 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -132,7 +131,8 @@ function initialsFor(
 }
 
 export function HomeScreen() {
-  const { width } = useWindowDimensions();
+  const [actionWidth, setActionWidth] = useState(0);
+  const actionColumns = actionWidth >= 680 ? 4 : 2;
   const router = useRouter();
   const session = useSession();
   const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>(
@@ -417,14 +417,16 @@ export function HomeScreen() {
 
           <View style={styles.section}>
           <Text style={styles.quickTitle}>Quick actions</Text>
-          <View style={styles.actionRow}>
-            {quickActions.map((action) => (
+          <View style={styles.actionGrid} onLayout={(event) => setActionWidth(Math.round(event.nativeEvent.layout.width))}>
+            {Array.from({ length: Math.ceil(quickActions.length / actionColumns) }, (_, row) => (
+            <View key={row} style={styles.actionRow}>
+            {quickActions.slice(row * actionColumns, (row + 1) * actionColumns).map((action) => (
               <Pressable
                 key={action.id}
                 onPress={() => router.push(action.route as never)}
                 accessibilityRole="button"
                 accessibilityLabel={`${action.label}: ${action.description}`}
-                style={({ pressed }) => [styles.action, { flexBasis: width >= 700 ? "22%" : "46%" }, action.id === "book" && styles.actionPrimary, pressed && { opacity: .8 }]}
+                style={({ pressed }) => [styles.action, action.id === "book" && styles.actionPrimary, pressed && { opacity: .8 }]}
               >
                 <View style={styles.actionTop}>
                 <View style={[styles.actionIcon, action.id === "book" && styles.actionIconPrimary]}>
@@ -439,6 +441,8 @@ export function HomeScreen() {
                 <Text style={[styles.actionLabel, action.id === "book" && styles.actionLabelPrimary]}>{action.label}</Text>
                 <Text style={[styles.actionDescription, action.id === "book" && styles.actionDescriptionPrimary]}>{action.description}</Text>
               </Pressable>
+            ))}
+            </View>
             ))}
           </View>
           </View>
@@ -855,9 +859,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: tokens.font.semibold,
   },
+  actionGrid: { gap: 12 },
   actionRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 12,
   },
   quickTitle: { color: tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 17 },
@@ -868,7 +872,8 @@ const styles = StyleSheet.create({
   actionDescription: { color: tokens.colors.muted, fontFamily: tokens.font.regular, fontSize: 12, lineHeight: 18 },
   actionDescriptionPrimary: { color: "#d6e4f5" },
   action: {
-    flexGrow: 1,
+    flex: 1,
+    minWidth: 0,
     minHeight: 108,
     padding: 12,
     borderRadius: 16,
