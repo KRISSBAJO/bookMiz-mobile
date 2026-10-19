@@ -1332,7 +1332,7 @@ function CustomerWorkbenchScreen() {
         animationType="slide"
         onRequestClose={closeComposer}
       >
-        <SafeAreaView style={styles.modalRoot} edges={["top"]}>
+        <SafeAreaView style={styles.composerRoot} edges={["top"]}>
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : "height"}
               style={styles.modalKeyboardWrap}
@@ -2370,6 +2370,10 @@ const styles = StyleSheet.create({
   skeletonLine: {
     height: 12,
     width: "90%",
+  },
+  composerRoot: {
+    flex: 1,
+    backgroundColor: tokens.colors.surface,
   },
   modalRoot: {
     flex: 1,
