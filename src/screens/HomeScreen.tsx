@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { priceLineFor } from "@/src/components/marketplace/ProviderCard";
 import { SectionHeader } from "@/src/components/SectionHeader";
+import { ProfileAvatar } from "@/src/components/ProfileAvatar";
 import { listCustomerBookings } from "@/src/lib/api/bookings";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import {
@@ -290,13 +291,11 @@ export function HomeScreen() {
               accessibilityLabel="Account"
               style={styles.avatar}
             >
-              <Text style={styles.avatarText}>
-                {initialsFor(
+              <ProfileAvatar photoUrl={session.profile?.avatarUrl} initials={initialsFor(
                   session.user?.firstName,
                   session.user?.lastName,
                   session.user?.email,
-                )}
-              </Text>
+                )} />
             </Pressable>
             <View style={styles.greeting}>
               <Text style={styles.greetingSmall}>

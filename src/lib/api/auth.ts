@@ -13,6 +13,14 @@ import type {
 } from "@/src/lib/api/types";
 
 const authUrl = `${mobileEnv.identityApiUrl}/auth`;
+export function uploadProfilePhoto(contentBase64: string) {
+  return requestJson<ProfileSettings>(`${authUrl}/me/profile/photo`, {
+    method: "POST", auth: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentBase64 }),
+  });
+}
+export function removeProfilePhoto() {
+  return requestJson<ProfileSettings>(`${authUrl}/me/profile/photo`, { method: "DELETE", auth: true });
+}
 export function sendEmailVerification() {
   return requestJson(`${authUrl}/verify-email/send`, {
     method: "POST",

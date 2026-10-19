@@ -89,6 +89,7 @@ export type NotificationPreferences = {
 };
 
 export type ProfileSettings = {
+  avatarUrl?: string | null;
   userId: string;
   email: string;
   emailVerified: boolean;
