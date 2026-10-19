@@ -14,6 +14,9 @@ import { AuthButton } from "@/src/components/auth/AuthButton";
 import { PersonaSwitcher } from "@/src/components/PersonaSwitcher";
 import { Screen } from "@/src/components/Screen";
 import { AppUpdatesPanel } from "@/src/components/AppUpdatesPanel";
+import { ProfileLocationPicker } from "@/src/components/ProfileLocationPicker";
+import { ProfilePhotoEditor } from "@/src/components/ProfilePhotoEditor";
+import type { ProfileLocation } from "@/src/lib/api/geography";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import type { NotificationPreferences } from "@/src/lib/api/types";
 import { useSession } from "@/src/store/session-context";
@@ -131,10 +134,15 @@ export function AccountScreen() {
     profile?.lastName ?? user?.lastName ?? "",
   );
   const [phone, setPhone] = useState(profile?.phone ?? "");
-  const [city, setCity] = useState(profile?.city ?? user?.city ?? "");
-  const [stateCode, setStateCode] = useState(
-    profile?.stateCode ?? user?.stateCode ?? "",
-  );
+  const [locationDraft, setLocationDraft] = useState<ProfileLocation>({
+    city: profile?.city ?? user?.city ?? "",
+    stateCode: profile?.stateCode ?? user?.stateCode ?? "",
+    countryCode: profile?.countryCode ?? "",
+    homeLatitude: profile?.homeLatitude ?? null,
+    homeLongitude: profile?.homeLongitude ?? null,
+  });
+  const [locationChanged, setLocationChanged] = useState(false);
+  const [locationValid, setLocationValid] = useState(true);
   const [notificationState, setNotificationState] =
     useState<NotificationPreferences | null>(
       profile?.notificationPreferences ?? null,
@@ -163,8 +171,9 @@ export function AccountScreen() {
     setFirstName(profile?.firstName ?? user?.firstName ?? "");
     setLastName(profile?.lastName ?? user?.lastName ?? "");
     setPhone(profile?.phone ?? "");
-    setCity(profile?.city ?? user?.city ?? "");
-    setStateCode(profile?.stateCode ?? user?.stateCode ?? "");
+    setLocationDraft({ city: profile?.city ?? user?.city ?? "", stateCode: profile?.stateCode ?? user?.stateCode ?? "", countryCode: profile?.countryCode ?? "", homeLatitude: profile?.homeLatitude ?? null, homeLongitude: profile?.homeLongitude ?? null });
+    setLocationChanged(false);
+    setLocationValid(true);
   }, [profile, user, isEditingProfile]);
   useEffect(() => {
     if (!isEditingNotifications)
@@ -172,8 +181,8 @@ export function AccountScreen() {
   }, [profile?.notificationPreferences, isEditingNotifications]);
 
   const canSaveProfile = useMemo(
-    () => firstName.trim().length > 0 && lastName.trim().length > 0,
-    [firstName, lastName],
+    () => firstName.trim().length > 0 && lastName.trim().length > 0 && locationValid,
+    [firstName, lastName, locationValid],
   );
 
   const fullName = [
@@ -186,6 +195,7 @@ export function AccountScreen() {
   const locationLabel = [
     profile?.city ?? user?.city,
     profile?.stateCode ?? user?.stateCode,
+    profile?.countryCode,
   ]
     .filter(Boolean)
     .join(", ");
@@ -196,23 +206,9 @@ export function AccountScreen() {
   return (
     <Screen title="Account" showBack={false}>
       <View style={styles.accountContent}>
-      <View style={styles.identity}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {initialsFor(user?.firstName, user?.lastName, email)}
-          </Text>
-        </View>
-        <View style={styles.identityCopy}>
-          <Text style={styles.identityName} numberOfLines={1}>
-            {fullName}
-          </Text>
-          {email ? (
-            <Text style={styles.identityEmail} numberOfLines={1}>
-              {email}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+      {user ? <ProfilePhotoEditor key={user.id} userId={user.id} photoUrl={profile?.avatarUrl}
+        fullName={fullName} email={email} initials={initialsFor(user.firstName, user.lastName, email)}
+        onSaved={session.refreshProfile} /> : null}
 
       {session.canUseAgentMode ? (
         <View style={styles.personaPanel}>
@@ -305,31 +301,12 @@ export function AccountScreen() {
             />
           </View>
 
-          <View style={styles.fieldRow}>
-            <View style={styles.column}>
-              <Text style={styles.fieldLabel}>City</Text>
-              <TextInput
-                value={city}
-                onChangeText={setCity}
-                style={styles.fieldInput}
-                placeholder="Chicago"
-                placeholderTextColor={tokens.colors.mutedSoft}
-                accessibilityLabel="City"
-              />
-            </View>
-            <View style={styles.columnNarrow}>
-              <Text style={styles.fieldLabel}>State</Text>
-              <TextInput
-                value={stateCode}
-                onChangeText={setStateCode}
-                style={styles.fieldInput}
-                placeholder="IL"
-                placeholderTextColor={tokens.colors.mutedSoft}
-                autoCapitalize="characters"
-                accessibilityLabel="State"
-              />
-            </View>
-          </View>
+          <ProfileLocationPicker value={locationDraft} onChange={(value, valid) => {
+            setLocationDraft(value);
+            setLocationChanged(true);
+            setLocationValid(valid);
+          }} />
+          {!locationValid ? <Text style={styles.detailLabel}>Choose a country, state or region, and city to finish changing your location.</Text> : null}
 
           <View style={styles.editorActions}>
             <AuthButton
@@ -351,8 +328,7 @@ export function AccountScreen() {
                     firstName: firstName.trim(),
                     lastName: lastName.trim(),
                     phone: phone.trim() || undefined,
-                    city: city.trim() || undefined,
-                    stateCode: stateCode.trim().toUpperCase() || undefined,
+                    ...(locationChanged ? locationDraft : {}),
                   });
                   setIsEditingProfile(false);
                 } catch (nextError) {
