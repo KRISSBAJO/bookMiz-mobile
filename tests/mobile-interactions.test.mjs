@@ -304,6 +304,52 @@ test("late availability for a previous day never replaces the newly selected day
   });
 });
 
+test("quote acceptance is offered only for unlocked matches on an active, unselected request", async () => {
+  const { canAcceptQuoteMatch } = utility("service-request-utils");
+  const request = { id: "request", requestedServiceName: "Haircut", city: "Dallas", status: "MATCHED", conversations: [],
+    matches: ["UNLOCKED", "AVAILABLE", "EXPIRED", "DECLINED"].map((status) => ({ id: status, status, provider: { displayName: status } })) };
+  assert.equal(canAcceptQuoteMatch(request, "UNLOCKED"), true);
+  for (const id of ["AVAILABLE", "EXPIRED", "DECLINED", "missing"]) assert.equal(canAcceptQuoteMatch(request, id), false);
+  const blocked = [
+    ...["ACCEPTED", "CANCELLED", "EXPIRED"].map((status) => ({ ...request, status })),
+    { ...request, acceptedQuoteMatchId: "another" }, { ...request, acceptedProviderId: "provider" },
+    { ...request, acceptedAt: "2026-10-19T12:00:00Z" },
+    { ...request, matches: [...request.matches, { id: "other", status: "ACCEPTED", provider: { displayName: "Chosen" } }] },
+  ];
+  for (const item of blocked) assert.equal(canAcceptQuoteMatch(item, "UNLOCKED"), false);
+  let current = request;
+  let poll;
+  let accepts = 0;
+  const pending = deferred();
+  const Workbench = screen("WorkbenchScreen", {
+    __setInterval: (callback) => { poll = callback; return 0; },
+    "@/src/store/session-context": { useSession: () => ({ activePersona: "customer", user: { id: "customer", email: "fixture@example.invalid" }, profile: {} }) },
+    "@/src/lib/api/marketplace": {
+      listMarketplaceRequestTemplates: async () => [], listCustomerQuoteRequests: async () => [current],
+      acceptCustomerQuoteMatch: () => { accepts++; return pending.promise; },
+    },
+    "@/src/lib/marketplace-display": { formatMarketplaceDistance: () => "", formatMarketplacePrice: () => "" },
+    "@/src/lib/service-request-utils": utility("service-request-utils"),
+  });
+  let tree;
+  await act(async () => { tree = create(React.createElement(Workbench)); });
+  const buttons = () => tree.root.findAllByType("Button").filter((node) => node.props.label === "Accept");
+  assert.equal(buttons().length, 1);
+  const accept = buttons()[0].props.onPress;
+  let sending;
+  await act(async () => { sending = accept(); await accept(); });
+  assert.equal(accepts, 1, "rapid taps must send one selection");
+  current = { ...request, status: "ACCEPTED", acceptedQuoteMatchId: "UNLOCKED" };
+  await act(async () => { pending.resolve({}); await sending; });
+  assert.equal(buttons().length, 0);
+  for (const item of blocked) {
+    current = item;
+    await act(async () => { await poll(); });
+    assert.equal(buttons().length, 0, `no acceptance for ${JSON.stringify(item)}`);
+  }
+  await act(async () => tree.unmount());
+});
+
 test("chat opens as a modal, keeps conversation drafts separate and preserves text typed during send", async () => {
   const pending = deferred();
   let poll;
