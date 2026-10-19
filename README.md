@@ -70,12 +70,23 @@ This does not bypass native compatibility. EAS serves updates for the installed
 channel and native fingerprint. SDK changes, notification modules, permissions,
 or native configuration need a new binary. No EAS Update has been published.
 
-The latest recorded BookMiz iOS EAS binary is version 1.0.0 (3), SDK 54, from
-February 15, 2026, with no runtime version recorded. The October 12 Android 1.0.0
-installed on the available emulator does not declare POST_NOTIFICATIONS or an
-FCM service. A compatible baseline build is needed before end-to-end notification
-and OTA delivery tests. Builds remain on hold. Existing iOS signing assets shown
-in Expo expire November 6, 2026; refresh those assets before release.
+On October 19, 2026, internal test builds were authorized; public release remains
+on hold. BookMiz's signing certificate and App Store profile now expire October
+19, 2027. Push Notifications is enabled on `com.anonymous.bookmiz`, and the
+replacement profile was checked for `aps-environment=production` before building.
+The previous shared certificate was left valid for the other apps that use it.
+
+The SDK 54 iOS build 3 and the October 12 Android installation do not provide the
+new native notification/update baseline. Replacement test builds use the preview
+channel and the fingerprint policy. Generated native directories are excluded
+from the fingerprint because Expo generates them from app config and native
+dependencies; those inputs remain included. LF line endings keep Windows and
+cloud fingerprints consistent. Local comparison with and without generated
+Android files produced the same fingerprint.
+
+The preview EAS environment contains the BookMiz API destinations, so an OTA
+publication cannot accidentally inherit the local development API URLs. Firebase
+client configuration is supplied separately as an EAS secret file variable.
 
 ## Completed remediation overview
 
@@ -99,6 +110,9 @@ in Expo expire November 6, 2026; refresh those assets before release.
 
 The mobile test suite now has 40 passing tests, including notification behavior
 for mocked iOS/Android modules and six OTA interaction tests. These are automated
-regressions, not proof of delivery to a physical device. The matching backend
-and website changes remain local commits; backend migrations are still required
-before these client features can be released.
+regressions, not proof of delivery to a physical device. Backend `f4baa8e` was
+deployed October 19 with database backups and the four mobile migrations. Both
+public readiness endpoints and authenticated demo-account smoke checks passed.
+The push worker was enabled after confirming there were no registered devices
+or queued jobs. Mobile changes have been pushed to GitHub; the matching website
+admin-review change remains a separate deployment concern.

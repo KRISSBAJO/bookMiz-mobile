@@ -104,6 +104,20 @@ test("Android creates its notification channel before requesting a token and reg
   assert.equal(f.calls[1][2], "android");
   assert.equal((await f.api.getPushRegistration()).platform, "android");
 });
+
+test("resuming from the permission prompt does not cancel an explicit enable", async () => {
+  const f = fixture("android");
+  f.setPermission(true);
+  let release;
+  f.wait(new Promise((resolve) => { release = resolve; }));
+  const enabling = f.api.enablePush("a");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await f.api.refreshPushRegistration("a");
+  release();
+  await enabling;
+  assert.equal((await f.api.getPushRegistration()).userId, "a");
+  assert.equal(f.calls.filter((call) => call[0] === "register").length, 1);
+});
 test("a permission revocation unregisters without reprompting and an account switch cancels a late token", async () => {
   const f = fixture();
   f.setPermission(true);

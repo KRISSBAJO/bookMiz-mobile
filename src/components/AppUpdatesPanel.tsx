@@ -99,8 +99,8 @@ export function AppUpdatesPanel() {
         App updates
       </Text>
       <Text style={styles.copy}>
-        Compatible improvements can download without a store update. New app
-        features may require a new version from the App Store or Google Play.
+        Small improvements download securely. Restart when you’re ready to apply
+        them. New features may require an App Store or Google Play update.
       </Text>
       <Text style={styles.version}>Version {version}</Text>
       {status ? (

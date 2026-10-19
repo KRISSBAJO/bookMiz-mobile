@@ -9,6 +9,7 @@ import {
 const key = "bookmiz-push-device";
 const projectId = "ca508477-5d3d-40ff-9f9c-6c0faae889bf";
 let registrationGeneration = 0;
+let enablingGeneration: number | null = null;
 type Registration = { userId: string; token: string; platform: string };
 export async function getPushRegistration(): Promise<Registration | null> {
   if (Platform.OS === "web") return null;
@@ -23,45 +24,51 @@ export async function getPushRegistration(): Promise<Registration | null> {
 }
 export async function enablePush(userId: string) {
   const generation = ++registrationGeneration;
-  const accessToken = getAuthTokens()?.accessToken;
-  const assertCurrent = () => {
-    if (
-      !accessToken ||
-      generation !== registrationGeneration ||
-      getAuthTokens()?.accessToken !== accessToken
-    )
+  enablingGeneration = generation;
+  try {
+    const accessToken = getAuthTokens()?.accessToken;
+    const assertCurrent = () => {
+      if (
+        !accessToken ||
+        generation !== registrationGeneration ||
+        getAuthTokens()?.accessToken !== accessToken
+      )
+        throw new Error(
+          "Your session changed. Please enable notifications again.",
+        );
+    };
+    if (Platform.OS === "web")
+      throw new Error("Push setup is available in the iPhone and Android app.");
+    if (Platform.OS === "android")
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "BookMiz updates",
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    let permission = await Notifications.getPermissionsAsync();
+    if (!permission.granted)
+      permission = await Notifications.requestPermissionsAsync();
+    if (!permission.granted)
       throw new Error(
-        "Your session changed. Please enable notifications again.",
+        "Notifications are not permitted. You can enable them in your device’s settings.",
       );
-  };
-  if (Platform.OS === "web")
-    throw new Error("Push setup is available in the iPhone and Android app.");
-  if (Platform.OS === "android")
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "BookMiz updates",
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  let permission = await Notifications.getPermissionsAsync();
-  if (!permission.granted)
-    permission = await Notifications.requestPermissionsAsync();
-  if (!permission.granted)
-    throw new Error(
-      "Notifications are not permitted. You can enable them in your device’s settings.",
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    assertCurrent();
+    await registerPushDevice(token, Platform.OS, accessToken);
+    assertCurrent();
+    await SecureStore.setItemAsync(
+      key,
+      JSON.stringify({ userId, token, platform: Platform.OS }),
     );
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-  assertCurrent();
-  await registerPushDevice(token, Platform.OS, accessToken);
-  assertCurrent();
-  await SecureStore.setItemAsync(
-    key,
-    JSON.stringify({ userId, token, platform: Platform.OS }),
-  );
+  } finally {
+    if (enablingGeneration === generation) enablingGeneration = null;
+  }
 }
 export async function refreshPushRegistration(userId: string) {
-  const generation = ++registrationGeneration;
+  if (enablingGeneration === registrationGeneration) return;
   const accessToken = getAuthTokens()?.accessToken;
   const saved = await getPushRegistration();
-  if (saved?.userId !== userId) return;
+  if (saved?.userId !== userId || enablingGeneration === registrationGeneration) return;
+  const generation = ++registrationGeneration;
   const permissions = await Notifications.getPermissionsAsync();
   if (!permissions.granted) {
     await disablePush(userId);
