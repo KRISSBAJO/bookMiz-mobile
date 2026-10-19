@@ -40,11 +40,12 @@ const serviceModelFilters = [
 type StatusFilterId = (typeof statusFilters)[number]["id"];
 type ServiceModelFilterId = (typeof serviceModelFilters)[number]["id"];
 
-function formatMoney(value?: number | null, currencyCode = "USD") {
+function formatMoney(value?: number | null, currencyCode?: string) {
   if (value === null || value === undefined) {
     return "—";
   }
 
+  if (!currencyCode) return "Currency unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currencyCode,
@@ -707,7 +708,7 @@ export function AgentOperationsPanel() {
                               <View style={styles.metricCardWhite}>
                                 <Text style={styles.metricLabel}>Unlock</Text>
                                 <Text style={styles.metricValue}>
-                                  {formatMoney(match.unlockPriceCents)}
+                                  {formatMoney(match.unlockPriceCents, match.payment?.currencyCode)}
                                 </Text>
                               </View>
                               <View style={styles.metricCardWhite}>

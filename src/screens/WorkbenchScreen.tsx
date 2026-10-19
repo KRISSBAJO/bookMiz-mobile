@@ -1219,7 +1219,7 @@ function CustomerWorkbenchScreen() {
               subtitle={[
                 formatDateLabel(selectedRequest.desiredDate),
                 selectedRequest.budgetMinCents || selectedRequest.budgetMaxCents
-                  ? `${formatMarketplacePrice(selectedRequest.budgetMinCents, null, selectedRequest.currencyCode || "USD")} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents, null, selectedRequest.currencyCode || "USD")}`
+                  ? `${formatMarketplacePrice(selectedRequest.budgetMinCents, null, selectedRequest.currencyCode)} - ${formatMarketplacePrice(selectedRequest.budgetMaxCents, null, selectedRequest.currencyCode)}`
                   : "Open budget",
                 `${selectedRequest.conversations.length} ${selectedRequest.conversations.length === 1 ? "chat" : "chats"}`,
               ].join(" · ")}
@@ -1274,7 +1274,7 @@ function CustomerWorkbenchScreen() {
                             ? formatMarketplacePrice(
                                 match.matchedService.priceCents,
                                 null,
-                                match.provider.currencyCode || "USD",
+                                match.matchedService.currencyCode,
                               )
                             : "Quote"}
                         </Text>

@@ -5,10 +5,12 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Alert,
   Image,
   Linking,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -35,6 +37,8 @@ import {
 } from "@/src/lib/marketplace-display";
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
+import { mobileEnv } from "@/src/lib/mobile-env";
+import { businessPagePath, publicWebsiteUrl, publicSocialUrl, publicPhoneUrl } from "@/src/lib/public-business-links";
 
 function normalizeSlug(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
@@ -58,6 +62,11 @@ export function ProviderDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const openPublicLink = useCallback(async (url: string) => {
+    try { await Linking.openURL(url); }
+    catch { Alert.alert("Could not open link", "Please try again or open this business page from the BookMiz website."); }
+  }, []);
 
   const loadProfile = useCallback(async () => {
     if (!slug) {
@@ -142,9 +151,13 @@ export function ProviderDetailScreen() {
   const priceTier = formatPriceTier(profile?.provider.priceRangeLabel);
   const startsAt =
     profile && profile.provider.lowestPriceCents !== null
-      ? formatMarketplacePrice(profile.provider.lowestPriceCents, null, currencyCode)
+      ? formatMarketplacePrice(profile.provider.lowestPriceCents, null, profile.provider.lowestPriceCurrencyCode)
       : null;
   const about = profile?.provider.description ?? profile?.provider.publicSummary ?? null;
+  const businessUrl = profile ? `${mobileEnv.webAppUrl}${businessPagePath(profile.provider.slug)}` : null;
+  const externalWebsite = publicWebsiteUrl(profile?.provider.websiteUrl);
+  const instagramUrl = publicSocialUrl(profile?.provider.instagramUrl, 'instagram');
+  const phoneUrl = publicPhoneUrl(profile?.provider.businessPhone);
   const tagline =
     profile?.provider.tagline ??
     (profile?.provider.publicSummary && profile.provider.publicSummary !== about
@@ -273,40 +286,48 @@ export function ProviderDetailScreen() {
                 ) : null}
               </View>
 
-              {profile.provider.websiteUrl ||
-              profile.provider.instagramUrl ||
-              profile.provider.businessPhone ? (
+              {businessUrl ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={styles.railScroll}
                   contentContainerStyle={styles.rail}
                 >
-                  {profile.provider.websiteUrl ? (
+                  <Pressable style={styles.chip} onPress={() => void openPublicLink(businessUrl)} accessibilityRole="link" accessibilityLabel={`Open ${profile.provider.displayName}'s BookMiz business page`}>
+                    <FontAwesome6 name="store" size={14} color={tokens.colors.ink} />
+                    <Text style={styles.chipText}>Business page</Text>
+                  </Pressable>
+                  <Pressable style={styles.chip} accessibilityRole="button" accessibilityLabel={`Share ${profile.provider.displayName}'s business page`} onPress={() => {
+                    void Share.share({ title: `${profile.provider.displayName} on BookMiz`, message: `${profile.provider.displayName} on BookMiz\n${businessUrl}`, url: businessUrl }).catch(() => Alert.alert("Could not share", "Please try again."));
+                  }}>
+                    <FontAwesome6 name="arrow-up-from-bracket" size={14} color={tokens.colors.ink} />
+                    <Text style={styles.chipText}>Share</Text>
+                  </Pressable>
+                  {externalWebsite ? (
                     <Pressable
                       style={styles.chip}
-                      onPress={() => void Linking.openURL(profile.provider.websiteUrl!)}
+                      onPress={() => void openPublicLink(externalWebsite)}
                       accessibilityRole="link"
                     >
                       <FontAwesome6 name="globe" size={14} color={tokens.colors.ink} />
                       <Text style={styles.chipText}>Website</Text>
                     </Pressable>
                   ) : null}
-                  {profile.provider.instagramUrl ? (
+                  {instagramUrl ? (
                     <Pressable
                       style={styles.chip}
-                      onPress={() => void Linking.openURL(profile.provider.instagramUrl!)}
+                      onPress={() => void openPublicLink(instagramUrl)}
                       accessibilityRole="link"
                     >
                       <FontAwesome6 name="instagram" size={14} color={tokens.colors.ink} />
                       <Text style={styles.chipText}>Instagram</Text>
                     </Pressable>
                   ) : null}
-                  {profile.provider.businessPhone ? (
-                    <View style={styles.chip}>
+                  {phoneUrl ? (
+                    <Pressable style={styles.chip} accessibilityRole="link" accessibilityLabel={`Call ${profile.provider.displayName}`} onPress={() => void openPublicLink(phoneUrl)}>
                       <FontAwesome6 name="phone" size={14} color={tokens.colors.ink} />
                       <Text style={styles.chipText}>{profile.provider.businessPhone}</Text>
-                    </View>
+                    </Pressable>
                   ) : null}
                 </ScrollView>
               ) : null}
@@ -366,7 +387,7 @@ export function ProviderDetailScreen() {
                           ) : null}
                         </View>
                         <Text style={styles.servicePrice}>
-                          {formatMarketplacePrice(service.priceCents, null, currencyCode)}
+                          {formatMarketplacePrice(service.priceCents, null, service.currencyCode)}
                         </Text>
                       </View>
                     ))}

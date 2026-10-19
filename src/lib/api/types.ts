@@ -246,11 +246,13 @@ export type MarketplaceProviderCard = {
     id: string;
     name: string;
     priceCents: number;
+    currencyCode?: string;
     compareAtPriceCents?: number | null;
     durationMinutes: number;
     label: string | null;
   }>;
   lowestPriceCents: number | null;
+  lowestPriceCurrencyCode?: string;
 };
 
 export type MarketplaceSearchResponse = {
@@ -300,6 +302,7 @@ export type MarketplaceProviderProfile = {
   provider: MarketplaceProviderCard & {
     description: string | null;
     websiteUrl: string | null;
+    publicPage?: { path: string; publicUrl: string };
     instagramUrl: string | null;
     facebookUrl: string | null;
     tiktokUrl: string | null;
@@ -347,6 +350,7 @@ export type MarketplaceProviderProfile = {
       intakeFields: Array<Record<string, unknown>>;
       requiredDocumentLabels: string[];
       priceCents: number;
+      currencyCode?: string;
       compareAtPriceCents: number | null;
       durationMinutes: number;
       marketplaceLabel: string | null;
@@ -366,6 +370,7 @@ export type MarketplaceProviderProfile = {
         intakeFields: Array<Record<string, unknown>>;
         requiredDocumentLabels: string[];
         priceCents: number;
+        currencyCode?: string;
         compareAtPriceCents: number | null;
         durationMinutes: number;
         marketplaceLabel: string | null;
@@ -771,6 +776,7 @@ export type AgentOperationsRequestDetail = AgentOperationsRequestSummary & {
       id: string;
       name: string;
       priceCents: number | null;
+      currencyCode?: string;
       durationMinutes: number | null;
     } | null;
     matchedLocation: {
@@ -957,6 +963,7 @@ export type CustomerQuoteRequest = {
       id: string;
       name: string;
       priceCents: number | null;
+      currencyCode?: string;
       durationMinutes: number | null;
     } | null;
     matchedLocation?: {
