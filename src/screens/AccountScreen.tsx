@@ -102,7 +102,6 @@ function SettingsRow({
       </View>
       <Text
         style={[styles.rowLabel, danger ? styles.rowLabelDanger : null]}
-        numberOfLines={1}
       >
         {label}
       </Text>
@@ -196,6 +195,7 @@ export function AccountScreen() {
 
   return (
     <Screen title="Account" showBack={false}>
+      <View style={styles.accountContent}>
       <View style={styles.identity}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
@@ -237,11 +237,18 @@ export function AccountScreen() {
       ) : null}
 
       <View style={styles.profileSection}>
-        <Text style={styles.editorTitle} accessibilityRole="header">
-          Profile details
-        </Text>
+        <View style={styles.sectionHeading}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={styles.editorTitle} accessibilityRole="header">Personal information</Text>
+            <Text style={styles.detailLabel}>Your contact details for bookings</Text>
+          </View>
+          {!isEditingProfile ? (
+            <AuthButton label="Edit profile" icon="pen-to-square" variant="secondary"
+              style={styles.editProfileButton} onPress={() => setIsEditingProfile(true)} />
+          ) : null}
+        </View>
+        {!isEditingProfile ? <View>
         {[
-          { label: "Full name", value: fullName || "Add your name" },
           { label: "Email", value: email || "Not provided" },
           { label: "Phone", value: profile?.phone || "Add a phone number" },
           { label: "Location", value: locationLabel || "Add your city" },
@@ -253,15 +260,7 @@ export function AccountScreen() {
             </Text>
           </View>
         ))}
-        {!isEditingProfile ? (
-          <AuthButton
-            label="Edit profile"
-            icon="pen-to-square"
-            variant="secondary"
-            style={styles.editProfileButton}
-            onPress={() => setIsEditingProfile(true)}
-          />
-        ) : null}
+        </View> : null}
       </View>
 
       {isEditingProfile ? (
@@ -479,9 +478,13 @@ export function AccountScreen() {
       ) : null}
 
       <View style={styles.profileSection}>
-        <Text accessibilityRole="header" style={styles.editorTitle}>
-          Device notifications
-        </Text>
+        <View style={styles.sectionHeading}>
+          <Text accessibilityRole="header" style={styles.editorTitle}>Device notifications</Text>
+          <View style={[styles.statusBadge, pushEnabled ? styles.statusBadgeEnabled : null]}>
+            <View style={[styles.statusDot, pushEnabled ? styles.statusDotEnabled : null]} />
+            <Text style={styles.statusText}>{pushEnabled ? "Enabled" : "Off"}</Text>
+          </View>
+        </View>
         <Text style={styles.detailLabel}>
           Receive private activity alerts on this device. Message and payment
           details stay inside BookMiz.
@@ -493,6 +496,7 @@ export function AccountScreen() {
               : "Enable device notifications"
           }
           variant="secondary"
+          style={styles.deviceButton}
           loading={pushBusy}
           disabled={pushBusy}
           onPress={async () => {
@@ -537,46 +541,57 @@ export function AccountScreen() {
         />
       </View>
       <AppUpdatesPanel />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  accountContent: { width: "100%", maxWidth: 640, alignSelf: "center", gap: 16 },
+  sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
+  sectionHeadingCopy: { gap: 4, flexShrink: 1 },
+  deviceButton: { alignSelf: "flex-start", minHeight: 44, borderRadius: 10 },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: tokens.colors.surfaceSoft },
+  statusBadgeEnabled: { backgroundColor: tokens.colors.brandSoft },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.colors.muted },
+  statusDotEnabled: { backgroundColor: "#247344" },
+  statusText: { fontSize: 12, fontFamily: tokens.font.medium, color: tokens.colors.ink },
   profileSection: {
-    gap: 16,
-    paddingVertical: 4,
+    gap: 12,
+    paddingVertical: 12,
   },
   profileDetail: {
-    gap: 4,
+    gap: 3,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: tokens.colors.border,
   },
   detailLabel: {
     color: tokens.colors.muted,
     fontSize: 13,
+    lineHeight: 19,
     fontFamily: tokens.font.regular,
   },
   detailValue: {
     color: tokens.colors.ink,
-    fontSize: 16,
-    lineHeight: 23,
+    fontSize: 15,
+    lineHeight: 21,
     fontFamily: tokens.font.medium,
     flexShrink: 1,
   },
   editProfileButton: {
     alignSelf: "flex-start",
-    minHeight: 48,
+    minHeight: 44,
     borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.colors.brandSoft,
-    borderColor: tokens.colors.brandDeep,
+    backgroundColor: "#ffffff",
+    borderColor: tokens.colors.borderStrong,
+    paddingHorizontal: 14,
   },
   identity: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    padding: 16,
+    paddingVertical: 8,
   },
   avatar: {
     width: 56,
@@ -598,7 +613,7 @@ const styles = StyleSheet.create({
   },
   identityName: {
     color: tokens.colors.ink,
-    fontSize: 17,
+    fontSize: 21,
     fontFamily: tokens.font.display,
     letterSpacing: -0.3,
   },
@@ -636,7 +651,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   row: {
-    height: 52,
+    minHeight: 56,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
