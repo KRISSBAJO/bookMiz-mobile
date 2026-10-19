@@ -21,3 +21,11 @@ test('an unpaid cancellation never promises a refund; ordinary paid visits stay 
   assert.equal(bookingPaymentLabel({status:'CANCELLED',paymentStatus:'PAID'}),'Paid');
   assert.equal(bookingPaymentLabel({status:'CONFIRMED'}),'Payment status unavailable');
 });
+
+
+test('Paystack cancellation shows pending, support review or confirmed refund without assuming Stripe mode',()=>{
+ const b={status:'CANCELLED',paymentStatus:'PAID',refundStatus:'PENDING'};
+ assert.equal(bookingPaymentLabel(b),'Refund pending');assert.equal(shouldRefreshBookingPayment(b),true);
+ const review={...b,refundStatus:'NEEDS_REVIEW'};assert.equal(bookingPaymentLabel(review),'Refund needs support');assert.equal(shouldRefreshBookingPayment(review),false);
+ assert.equal(bookingPaymentLabel({...b,paymentStatus:'REFUNDED',refundStatus:'PROCESSED'}),'Refunded');
+});
