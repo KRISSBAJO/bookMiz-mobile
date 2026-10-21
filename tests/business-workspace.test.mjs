@@ -157,11 +157,11 @@ test('Requests is a brief-review queue with original budgets and no duplicate in
 });
 
 test('Messages uses recent conversation rows and opens chat directly without request review', async t => {
-  const f = fixture({ getMerchantRequests: async () => ({ requests: [requestFixture('locked', 'AVAILABLE'), requestFixture('older', 'UNLOCKED', threadFixture('2026-10-20T10:00:00Z', 'OPEN', 'Can we meet?')), requestFixture('latest', 'ACCEPTED', threadFixture('2026-10-21T10:00:00Z', 'OPEN', 'Yes, see you then', 'PROVIDER')), requestFixture('closed', 'EXPIRED', threadFixture('2026-10-19T10:00:00Z', 'ARCHIVED'))] }) }, {}, { screenStubs: true });
+  const f = fixture({ getMerchantRequests: async () => ({ requests: [requestFixture('locked', 'AVAILABLE'), requestFixture('older', 'UNLOCKED', threadFixture('2026-10-20T10:00:00Z', 'OPEN', 'Can we meet?')), requestFixture('latest', 'ACCEPTED', threadFixture('2026-10-21T10:00:00Z', 'OPEN', 'Yes, see you then', 'PROVIDER')), requestFixture('closed', 'EXPIRED', { ...threadFixture('2026-10-19T10:00:00Z', 'ARCHIVED'), lastMessage: null })] }) }, {}, { screenStubs: true });
   const { MerchantMessagesScreen } = f.load('src/screens/business/MerchantMessagesScreen.tsx'); let tree;
   await act(async () => { tree = create(React.createElement(MerchantMessagesScreen)); });
   t.after(async () => { await act(async () => tree.unmount()); });
-  const output = JSON.stringify(tree.toJSON()); assert.match(output, /You: Yes, see you then/); assert.match(output, /Closed conversation/); assert.doesNotMatch(output, /CUSTOMER BUDGET|Request queue|Client locked|unread/);
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /You: Yes, see you then/); assert.match(output, /Closed conversation/); assert.match(output, /No messages in this conversation/); assert.doesNotMatch(output, /CUSTOMER BUDGET|Request queue|Client locked|unread/);
   const rows = tree.root.findAllByType('Pressable').filter(x => x.props.accessibilityLabel?.startsWith('Open conversation with'));
   assert.match(rows[0].props.accessibilityLabel, /Client latest/);
   await act(async () => rows[0].props.onPress()); assert.equal(tree.root.findByType('MerchantChat').props.matchId, 'latest'); assert.equal(tree.root.findAllByType('Modal').length, 0);
