@@ -21,6 +21,14 @@ export function businessRequest<T>(path: string, organizationId: string, method 
   return requestJson<T>(`${mobileEnv.bookingApiUrl}/provider-workspace/${path}${separator}${query}`, { auth: true, method, ...(body !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body as object, ...(method === 'POST' || !path.startsWith('bookings/') ? { organizationId } : {}) }) } : {}) });
 }
 export const getMerchantBootstrap = (org: string) => businessRequest<{ workspace: Workspace; stats: { activeServices: number; activeStaff: number; openRequests: number } }>('bootstrap', org);
+export async function getMerchantCover(org: string, slug: string) {
+  const [profile, settings] = await Promise.allSettled([
+    requestJson<{ provider: { coverImageUrl?: string | null } }>(`${mobileEnv.bookingApiUrl}/marketplace/providers/${encodeURIComponent(slug)}`, { method: 'GET' }),
+    businessRequest<{ bookingPage?: { bannerUrl?: string | null } }>('settings', org),
+  ]);
+  return { url: (profile.status === 'fulfilled' ? profile.value.provider.coverImageUrl : null)
+    || (settings.status === 'fulfilled' ? settings.value.bookingPage?.bannerUrl : null) || null };
+}
 export const getMerchantSettings = (org: string) => businessRequest<MerchantSettings>('settings', org);
 export const getMerchantServices = (org: string) => businessRequest<{ workspace: Workspace; categories: ServiceCategory[] }>('services', org);
 export const getMerchantRequests = (org: string) => businessRequest<{ workspace: Workspace; requests: MerchantRequest[] }>('requests', org);
