@@ -12,8 +12,9 @@ function fixture(api = {}, overrides = {}, options = {}) {
   const router = { push: route => routes.push(route), replace: route => routes.push(route), setParams: next => Object.assign(params, next) };
   const workspace = { id: 'p', organizationId: 'org', displayName: 'Test Studio', timezone: 'America/Chicago', currencyCode: 'USD', deliveryModes: ['IN_PERSON'] };
   const business = { organizationId: 'org', workspace, canManage: true, businesses: [{ id: 'org', role: 'ORG_ADMIN', displayName: 'Test Studio' }], ...overrides };
-  const native = { View: 'View', Text: 'Text', TextInput: 'TextInput', Pressable: 'Pressable', Modal: 'Modal', Image: 'Image', Switch: 'Switch', ActivityIndicator: 'Loading', KeyboardAvoidingView: 'KeyboardAvoidingView', ScrollView: 'ScrollView', StyleSheet: { create: x => x, hairlineWidth: 1 }, Platform: { OS: 'android' }, Linking: { openURL: async () => {} }, useWindowDimensions: () => ({ width: options.width ?? 320, height: 640, fontScale: options.fontScale ?? 1 }) };
+  const native = { View: 'View', Text: 'Text', TextInput: 'TextInput', Pressable: 'Pressable', Modal: 'Modal', Image: 'Image', Switch: 'Switch', ActivityIndicator: 'Loading', KeyboardAvoidingView: 'KeyboardAvoidingView', ScrollView: 'ScrollView', RefreshControl: 'RefreshControl', StyleSheet: { create: x => x, hairlineWidth: 1 }, Platform: { OS: 'android' }, Linking: { openURL: async () => {} }, useWindowDimensions: () => ({ width: options.width ?? 320, height: 640, fontScale: options.fontScale ?? 1 }) };
   const mocks = { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-native': native, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' }, 'expo-router': { useFocusEffect: callback => React.useEffect(callback, [callback]), useRouter: () => router, useLocalSearchParams: () => params }, '@expo/vector-icons': { FontAwesome6: 'Icon' }, '@react-native-community/datetimepicker': { default: 'DatePicker' }, 'expo-document-picker': { getDocumentAsync: async () => ({ canceled: true }) }, 'expo-file-system': { File: class {}, Paths: { cache: { uri: 'cache/' } } } };
+  native.ScrollView = ({ refreshControl, children, ...props }) => React.createElement('ScrollView', props, refreshControl, children);
   const cache = new Map();
   function load(relative) {
     let filename = path.resolve(root, relative);
@@ -50,30 +51,46 @@ test('day summary orders bookings and excludes expired/terminal visits from the 
   assert.equal(records[0].id, 'future'); assert.equal(result.next.totalPriceCents, 0);
 });
 
-test('home uses business-day data and original zero/mixed-currency totals and routes useful shortcuts', async t => {
+test('calendar places original booking amounts in accessible blocks and opens scoped details', async t => {
   const day = policy.businessDate(new Date(), 'America/Chicago');
   const start = policy.businessDateTimeToIso(day, '11:00', 'America/Chicago');
-  const records = [{ id: 'zero', customerName: 'Alex', serviceName: 'Original booking', startsAt: start, endsAt: start, status: 'CONFIRMED', paymentStatus: 'UNPAID', totalPriceCents: 0, currencyCode: 'USD', assignedStaffId: null }, { id: 'ngn', customerName: 'Taylor', serviceName: 'Second service', startsAt: start, endsAt: start, status: 'COMPLETED', paymentStatus: 'PAID', totalPriceCents: 1299, currencyCode: 'NGN', assignedStaffId: 'staff' }];
-  const f = fixture({ getMerchantBookings: async () => ({ bookings: records }), getMerchantBootstrap: async () => ({ stats: { openRequests: 2, activeServices: 5, activeStaff: 2 } }) });
+  const end = policy.businessDateTimeToIso(day, '12:00', 'America/Chicago');
+  const records = [{ id: 'zero', customerName: 'Alex', serviceName: 'Original booking', startsAt: start, endsAt: end, status: 'CONFIRMED', paymentStatus: 'UNPAID', totalPriceCents: 0, currencyCode: 'USD', assignedStaffId: null, channel: 'IN_PERSON' }, { id: 'ngn', customerName: 'Taylor', serviceName: 'Second service', startsAt: start, endsAt: end, status: 'COMPLETED', paymentStatus: 'PAID', totalPriceCents: 1299, currencyCode: 'NGN', assignedStaffId: 'staff', channel: 'IN_PERSON' }];
+  const f = fixture({ getMerchantBookings: async () => ({ bookings: records }), getMerchantSettings: async () => ({ staffMembers: [] }), getMerchantBootstrap: async () => ({ stats: { openRequests: 2 } }) });
   const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
   await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
   t.after(async () => { await act(async () => tree.unmount()); });
-  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Booking total/); assert.match(output, /USD/); assert.match(output, /0\.00/); assert.match(output, /NGN/); assert.match(output, /12\.99/); assert.match(output, /Need a team member/);
-  await act(async () => findButton(tree, 'Availability').props.onPress());
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /booking total USD\s0.00/); assert.match(output, /booking total NGN\s12.99/);
+  await act(async () => findButton(tree, 'Hours & time off').props.onPress());
   await act(async () => findButton(tree, 'Add service').props.onPress());
-  await act(async () => findButton(tree, 'Money').props.onPress());
-  assert.deepEqual(f.routes, ['/business/manage?section=availability', '/business/manage?section=services&action=add-service', '/business/money']);
-  assert.equal(tree.root.findAllByType('Image').length, 0); // small-screen text gets the space
+  assert.deepEqual(f.routes, ['/business/manage?section=availability', '/business/manage?section=services&action=add-service']);
+  const event = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel?.includes('Alex, Original booking'));
+  await act(async () => event.props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 1);
+  await act(async () => findButton(tree, 'Close').props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 0);
 });
 
-test('staff homepage exposes read access and loading errors never masquerade as an empty successful day', async t => {
-  const f = fixture({ getMerchantBookings: async () => { throw new Error('Offline'); }, getMerchantBootstrap: async () => ({ stats: {} }) }, { canManage: false, businesses: [{ id: 'org', role: 'STAFF' }] }, { width: 840 });
+test('staff schedule keeps appointments available when auxiliary team loading fails and offers no creation', async t => {
+  const f = fixture({ getMerchantBookings: async () => ({ bookings: [] }), getMerchantSettings: async () => { throw new Error('Offline'); }, getMerchantBootstrap: async () => ({ stats: {} }) }, { canManage: false, businesses: [{ id: 'org', role: 'STAFF' }] });
   const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
   await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
   t.after(async () => { await act(async () => tree.unmount()); });
-  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Offline/); assert.doesNotMatch(output, /all caught up|New booking|Add service|Payments & payouts/);
-  assert.equal(tree.root.findAllByType('Image').length, 1);
-  await act(async () => findButton(tree, 'Messages').props.onPress()); assert.deepEqual(f.routes, ['/business/inbox']);
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Team and setup information could not load/); assert.doesNotMatch(output, /New appointment|Add service/);
+});
+
+test('schedule layout separates overlapping blocks, clips overnight visits and respects DST business dates', () => {
+  const { scheduleLayout } = fixture().load('src/lib/merchant-schedule.ts');
+  const record = (id, startsAt, endsAt) => ({ id, startsAt, endsAt });
+  const records = [record('a', '2026-10-21T14:00:00Z', '2026-10-21T15:00:00Z'), record('b', '2026-10-21T14:30:00Z', '2026-10-21T15:30:00Z'), record('c', '2026-10-21T15:30:00Z', '2026-10-21T16:00:00Z'), record('overnight', '2026-10-21T04:00:00Z', '2026-10-21T06:00:00Z'), record('midnight-end', '2026-10-21T04:00:00Z', '2026-10-21T05:00:00Z')];
+  const result = scheduleLayout(records, '2026-10-21', 'America/Chicago');
+  assert.equal(result.items.find(x => x.booking.id === 'a').columns, 2);
+  assert.notEqual(result.items.find(x => x.booking.id === 'a').column, result.items.find(x => x.booking.id === 'b').column);
+  assert.equal(result.items.find(x => x.booking.id === 'c').columns, 1);
+  assert.equal(result.items.find(x => x.booking.id === 'overnight').start, 0);
+  assert.equal(result.items.find(x => x.booking.id === 'overnight').end, 60);
+  assert.equal(result.items.some(x => x.booking.id === 'midnight-end'), false);
+  const dst = scheduleLayout([record('repeat', '2026-11-01T06:45:00Z', '2026-11-01T07:15:00Z')], '2026-11-01', 'America/Chicago');
+  assert.equal(dst.items[0].start, 105); assert.ok(dst.items[0].end > dst.items[0].start);
+  assert.equal(records[0].startsAt, '2026-10-21T14:00:00Z');
 });
 
 test('add-service shortcut opens the service editor once and cannot grant staff write access', async () => {
@@ -260,3 +277,4 @@ test('booking editor uses backend slots and submits the reviewed service price, 
   assert.equal(writes[0].payload.assignedStaffId, 'staff'); assert.equal(writes[0].payload.startsAt, '2026-11-01T17:00:00Z');
   await act(async () => tree.unmount());
 });
+

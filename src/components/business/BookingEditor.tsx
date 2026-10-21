@@ -8,14 +8,14 @@ import { Action, Choices, DateField, Editor, Field, Notice, ui, useBusinessData,
 export function slotLabel(slot: Slot, timezone: string) {
   return new Date(slot.startAt).toLocaleTimeString(undefined, { timeZone: timezone, hour: 'numeric', minute: '2-digit' });
 }
-export function BookingEditor({ booking, onClose, onSaved }: { booking?: MerchantBooking; onClose: () => void; onSaved: () => Promise<void> }) {
+export function BookingEditor({ booking, onClose, onSaved, initialDay, initialStaffId }: { booking?: MerchantBooking; initialDay?: string; initialStaffId?: string; onClose: () => void; onSaved: () => Promise<void> }) {
   const { organizationId: org, workspace, canManage } = useBusiness();
   const resources = useBusinessData(useCallback(async () => {
     const [catalog, settings, customerData] = await Promise.all([getMerchantServices(org), getMerchantSettings(org), businessRequest<{ customers: { id: string; fullName: string }[] }>('customers', org)]);
     return { services: catalog.categories.flatMap(c => c.services).filter(s => s.isActive), settings, customers: customerData.customers };
   }, [org]));
-  const [serviceId, setService] = useState(booking?.serviceId ?? ''), [day, setDay] = useState(businessDate(booking?.startsAt ?? new Date(), workspace.timezone));
-  const [staffId, setStaff] = useState(booking?.assignedStaffId ?? ''), [locationId, setLocation] = useState(booking?.locationId ?? '');
+  const [serviceId, setService] = useState(booking?.serviceId ?? ''), [day, setDay] = useState(booking ? businessDate(booking.startsAt, workspace.timezone) : initialDay ?? businessDate(new Date(), workspace.timezone));
+  const [staffId, setStaff] = useState(booking?.assignedStaffId ?? initialStaffId ?? ''), [locationId, setLocation] = useState(booking?.locationId ?? '');
   const [customerId, setCustomer] = useState(''), [search, setSearch] = useState(''), [firstName, setFirst] = useState(''), [lastName, setLast] = useState(''), [email, setEmail] = useState(''), [phone, setPhone] = useState(''), [notes, setNotes] = useState('');
   const [channel, setChannel] = useState(booking?.channel ?? 'IN_PERSON');
   const [slots, setSlots] = useState<Slot[]>([]), [slot, setSlot] = useState<Slot | null>(null), [slotError, setSlotError] = useState(''), [finding, setFinding] = useState(false), [review, setReview] = useState(false);
