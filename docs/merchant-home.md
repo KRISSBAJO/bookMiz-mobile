@@ -86,6 +86,15 @@ User requested distinct layouts for these two tabs. Requests is now a service-br
 
 Messages has its own screen and flat conversation rows: customer initials, name, service context, latest message, provider “You:” prefix and activity time, with All/Open/Closed filters. Threads are ordered by latest recorded message activity. No unread counters or presence indicators are invented. Managers open chat directly; staff retain preview/linked-request access and cannot gain reply permissions. Closed history remains accessible. Request and conversation deep links remain scoped to the selected business; chat links are consumed on dismissal. Alerts can return to Messages.
 
-Source `495409c`, preview equivalent `441b0e0`. Type checking and all 83 mobile tests pass. Both platform exports succeed and use deployed HTTPS BookMiz APIs. Native visual review remains pending. Publication status is recorded separately once connectivity permits it.
+Source `495409c`, preview equivalent `441b0e0`. Type checking and all 83 mobile tests pass. Both platform exports succeed and use deployed HTTPS BookMiz APIs. Native visual review remains pending. Preview publication and delivery verification are recorded below.
 
 Existing mobile availability is under Business → Availability, with working hours, breaks and time off scoped to staff/location where applicable. Full team/location management, business profile/cover editing and advanced settings remain future mobile work; this UI separation does not claim to implement them.
+
+## Requests / Messages preview delivery
+
+Published October 21, 2026 after Windows connectivity was restored. Final source includes `bda3b6c` (preview equivalent `b48ca42`) so empty closed/read-only threads do not invite users to start replying.
+
+- ios: update `01a15ea7-b664-77c2-8c04-7ab5289bddbb`, group `fe1b723d-175a-44fb-b6cd-5904055692e1`, unchanged installed runtime `8c9848a7e198a913d8d8d10b79445326921c0f70`.
+- android: update `01a15ea7-b664-7074-bcce-0c652d6f2230`, group `d7357516-674f-4b88-a315-5d67dd12eb55`, unchanged installed runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
+
+Both runtime-specific manifests, bundles and the existing default cover were downloaded and their SHA-256 hashes verified. Evidence: `E:/BookMiz-merchant-testing/request-messages-delivery-verification.json`. Type checking and all 83 tests pass. No backend change, native build or public store release was triggered. Physical-device visual acceptance remains pending.
