@@ -1223,6 +1223,15 @@ export function AppointmentDetailScreen() {
                   ) : null}
                 </View>
 
+                {selectedSlot && booking?.customerPolicy ? (
+                  <View style={styles.documentCopy}>
+                    <Text style={styles.sectionTitle}>Deadlines for the new time</Text>
+                    <Text style={styles.sectionBody}>Cancel by {new Date(Date.parse(selectedSlot.startAt) - (booking.customerPolicy.cancellationNoticeHours ?? 0) * 3600000).toLocaleString(undefined, { timeZone: businessTimezone })}</Text>
+                    <Text style={styles.sectionBody}>Reschedule by {new Date(Date.parse(selectedSlot.startAt) - (booking.customerPolicy.rescheduleNoticeHours ?? 0) * 3600000).toLocaleString(undefined, { timeZone: businessTimezone })}</Text>
+                    <Text style={styles.sectionBody}>{businessTimezone}. Your original price and currency stay the same.</Text>
+                  </View>
+                ) : null}
+
                 <TextInput
                   value={rescheduleReason}
                   onChangeText={setRescheduleReason}
