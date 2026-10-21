@@ -1,6 +1,6 @@
 export type SessionRole = "CUSTOMER" | "AGENT";
 
-export type PersonaMode = "customer" | "agent";
+export type PersonaMode = "customer" | "agent" | "business";
 
 export type BookMizUser = {
   id: string;

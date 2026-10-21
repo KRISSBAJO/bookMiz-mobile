@@ -210,6 +210,10 @@ export function AccountScreen() {
         fullName={fullName} email={email} initials={initialsFor(user.firstName, user.lastName, email)}
         onSaved={session.refreshProfile} /> : null}
 
+      {session.canUseBusinessMode ? <Pressable accessibilityRole="button" onPress={() => { session.switchPersona("business"); router.push("/business" as never); }} style={[styles.personaPanel, { backgroundColor: tokens.colors.inkDeep }]}>
+        <Text style={[styles.personaTitle, { color: "#ffffff" }]}>Your business workspace →</Text>
+        <Text style={[styles.personaCaption, { color: tokens.colors.onNavyMuted }]}>Bookings, services, requests and your team’s day.</Text>
+      </Pressable> : null}
       {session.canUseAgentMode ? (
         <View style={styles.personaPanel}>
           <Text style={styles.personaTitle}>Workspace mode</Text>

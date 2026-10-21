@@ -1,0 +1,42 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Linking, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Screen } from '../../components/Screen';
+import { useBusiness } from '../../store/business-context';
+import { getMerchantRequests, merchantMatch, type MerchantRequest } from '../../lib/api/business';
+import { formatBusinessMoney, moneyInput } from '../../lib/business-policy';
+import { mobileEnv } from '../../lib/mobile-env';
+import { Action, Badge, Choices, Editor, Empty, Field, Notice, ui, useBusinessData, useBusinessMutation } from '../../components/business/BusinessUI';
+import { MerchantChat } from '../../components/business/MerchantChat';
+import { InboxScreen } from '../InboxScreen';
+export function MerchantRequestsScreen() { return <RequestList />; }
+export function MerchantMessagesScreen() {
+  const { view, notificationId } = useLocalSearchParams<{ view?: string; notificationId?: string }>();
+  const [tab, setTab] = useState(view === 'notifications' || notificationId ? 'notifications' : 'messages');
+  useEffect(() => { if (view === 'notifications' || notificationId) setTab('notifications'); }, [view, notificationId]);
+  if (tab === 'notifications') return <View style={{ flex: 1 }}><View style={{ paddingHorizontal: 18, paddingTop: 12 }}><Action label="Back to customer messages" secondary onPress={() => setTab('messages')} /></View><InboxScreen /></View>;
+  return <RequestList messagesOnly onNotifications={() => setTab('notifications')} />;
+}
+function RequestList({ messagesOnly, onNotifications }: { messagesOnly?: boolean; onNotifications?: () => void }) {
+  const b = useBusiness(), router = useRouter(), params = useLocalSearchParams<{ matchId?: string }>();
+  const state = useBusinessData(useCallback(() => getMerchantRequests(b.organizationId), [b.organizationId]));
+  const mutation = useBusinessMutation();
+  const [filter, setFilter] = useState('ALL'), [search, setSearch] = useState(''), [detail, setDetail] = useState<MerchantRequest | null>(null), [chat, setChat] = useState<{ id: string; draft?: string } | null>(null), [proposal, setProposal] = useState(false), [amount, setAmount] = useState(''), [terms, setTerms] = useState(''), [decline, setDecline] = useState(false);
+  const rows = (state.data?.requests ?? []).filter(r => (!messagesOnly || r.conversation) && (filter === 'ALL' || r.status === filter) && `${r.request.requestedServiceName} ${r.request.requesterName}`.toLowerCase().includes(search.toLowerCase()));
+  const selected = state.data?.requests.find(r => r.id === detail?.id || r.id === params.matchId) ?? detail;
+  const closeDetail = () => { router.setParams({ matchId: undefined }); setDetail(null); setProposal(false); setDecline(false); mutation.clearError(); };
+  return <Screen title={messagesOnly ? 'Messages' : 'Customer requests'} eyebrow={b.workspace.displayName} showBack={false} subtitle={messagesOnly ? 'Every conversation, connected to a request.' : 'Review the brief. Start the conversation.'} refreshing={state.loading} onRefresh={() => void state.refresh()} action={onNotifications ? <Action label="Alerts" secondary icon="bell" onPress={onNotifications} /> : undefined}>
+    <Field label={messagesOnly ? 'Search conversations' : 'Search requests'} value={search} onChangeText={setSearch} placeholder="Customer or service name" /><Choices label="Status" items={['ALL', 'AVAILABLE', 'UNLOCKED', 'ACCEPTED', 'DECLINED', 'EXPIRED'].map(s => ({ id: s, label: s === 'AVAILABLE' ? 'New' : s === 'UNLOCKED' ? 'In conversation' : s.replaceAll('_', ' ') }))} value={filter} onChange={setFilter} />
+    {state.error ? <Notice text={state.error} onRetry={() => void state.refresh()} /> : null}{mutation.error && !selected ? <Notice text={mutation.error} /> : null}
+    {state.loading && !state.data ? <ActivityIndicator /> : rows.map(r => <View key={r.id} style={ui.card}><View style={ui.row}><Text style={[ui.title, ui.grow]}>{r.request.requestedServiceName}</Text><Badge value={r.status} /></View><Text style={ui.text}>{r.request.requesterName} · {r.request.city}</Text><Text numberOfLines={2} style={ui.muted}>{messagesOnly ? r.conversation?.lastMessage?.content || 'No messages yet' : r.request.description}</Text><View style={ui.wrap}><Action label="View request" secondary onPress={() => { setDetail(r); setAmount(''); setTerms(''); }} />{r.conversation && b.canManage ? <Action label="Open chat" icon="comment" onPress={() => setChat({ id: r.id })} /> : null}</View></View>)}
+    {!state.loading && !state.error && !rows.length ? <Empty title={messagesOnly ? 'No conversations yet' : 'Nothing to review'} text="New matching customer requests will appear here." /> : null}
+    {selected && !chat ? <Editor title={selected.request.requestedServiceName} subtitle={selected.request.requesterName} busy={mutation.busy} onClose={closeDetail}><Badge value={selected.status} /><Text style={ui.text}>{selected.request.description}</Text><Text style={ui.muted}>{selected.request.city}{selected.request.stateCode ? `, ${selected.request.stateCode}` : ''}{selected.request.desiredDate ? ` · ${new Date(selected.request.desiredDate).toLocaleDateString(undefined, { timeZone: b.workspace.timezone })}` : ''}</Text>{selected.request.budgetMinCents !== null || selected.request.budgetMaxCents !== null ? <Text style={ui.title}>Budget: {selected.request.budgetMinCents !== null ? formatBusinessMoney(selected.request.budgetMinCents, selected.request.currencyCode) : 'Any'} – {selected.request.budgetMaxCents !== null ? formatBusinessMoney(selected.request.budgetMaxCents, selected.request.currencyCode) : 'Open'}</Text> : null}
+      {selected.matchedService ? <View style={ui.card}><Text style={ui.muted}>MATCHED SERVICE</Text><Text style={ui.title}>{selected.matchedService.name}</Text><Text style={ui.text}>{formatBusinessMoney(selected.matchedService.priceCents, selected.matchedService.currencyCode)}</Text></View> : null}
+      {mutation.error ? <Notice text={mutation.error} /> : null}
+      {b.canManage && selected.conversation ? <><Action label="Open customer chat" onPress={() => setChat({ id: selected.id })} />{['UNLOCKED'].includes(selected.status) ? <Action label="Prepare a quote message" secondary onPress={() => setProposal(v => !v)} /> : null}{proposal ? <View style={ui.card}><Field label={`Proposed price (${selected.request.currencyCode})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" /><Field label="What is included and when?" multiline value={terms} onChangeText={setTerms} /><Text style={ui.muted}>This sends a proposal in chat. It does not change a service price, create a charge or mark the customer’s request accepted.</Text><Action label="Review in chat" secondary onPress={() => void mutation.run(async () => { const cents = moneyInput(amount); if (!terms.trim()) throw new Error('Describe what the quote includes.'); setChat({ id: selected.id, draft: `Quote proposal: ${formatBusinessMoney(cents, selected.request.currencyCode)}\n\n${terms.trim()}` }); })} /></View> : null}</> : null}
+      {b.canManage && selected.status === 'AVAILABLE' ? <><Text style={ui.muted}>This request needs unlocking before you can reply. Available credits can be used here; card payment setup is on the website.</Text><Action label="Unlock using available credits" onPress={() => void mutation.run(() => merchantMatch(selected.id, 'unlock-session', 'POST', { paymentPreference: 'CREDITS_ONLY' }), state.refresh)} /><Action label="Open request on website" secondary onPress={() => void mutation.run(() => Linking.openURL(`${mobileEnv.webAppUrl}/provider/requests`))} /></> : null}
+      {b.canManage && ['AVAILABLE', 'UNLOCKED'].includes(selected.status) ? decline ? <View style={ui.card}><Text style={ui.title}>Decline this request?</Text><Text style={ui.muted}>The conversation will close and this request leaves your active queue.</Text><Action label="Confirm decline" danger busy={mutation.busy} onPress={() => void mutation.run(() => merchantMatch(selected.id, 'decline', 'POST', {}), async () => { closeDetail(); await state.refresh(); })} /><Action label="Keep request" secondary onPress={() => setDecline(false)} /></View> : <Action label="Decline request" danger onPress={() => setDecline(true)} /> : null}
+    </Editor> : null}
+    {chat ? <MerchantChat key={chat.id} matchId={chat.id} initialDraft={chat.draft} onClose={() => { setChat(null); void state.refresh(); }} /> : null}
+  </Screen>;
+}
