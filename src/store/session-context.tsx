@@ -33,6 +33,7 @@ import {
 } from "@/src/lib/api/storage";
 import type {
   AuthResponseData,
+  AuthOrganization,
   LoginPayload,
   ProfileSettings,
   RegisterCustomerPayload,
@@ -51,6 +52,8 @@ type SessionContextValue = BookMizSession & {
   isHydrating: boolean;
   authError: string | null;
   canUseAgentMode: boolean;
+  businesses: AuthOrganization[];
+  canUseBusinessMode: boolean;
   switchPersona: (persona: PersonaMode) => void;
   signIn: (payload: LoginPayload) => Promise<void>;
   signUp: (payload: RegisterCustomerPayload) => Promise<void>;
@@ -117,7 +120,9 @@ function buildSessionUser(
 
 export function SessionProvider({ children }: PropsWithChildren) {
   const sessionGeneration = useRef(0);
+  const personaChosen = useRef(false);
   const [user, setUser] = useState<BookMizSession["user"]>(null);
+  const [businesses, setBusinesses] = useState<AuthOrganization[]>([]);
   const [profile, setProfile] = useState<ProfileSettings | null>(null);
   const [activePersona, setActivePersona] = useState<PersonaMode>("customer");
   const [isHydrating, setIsHydrating] = useState(true);
@@ -127,8 +132,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
     async (errorMessage?: string | null) => {
       sessionGeneration.current += 1;
       setUser(null);
+      setBusinesses([]);
       setProfile(null);
       setActivePersona("customer");
+      personaChosen.current = false;
       setAuthError(errorMessage ?? null);
       try {
         await clearAuthTokens();
@@ -153,11 +160,13 @@ export function SessionProvider({ children }: PropsWithChildren) {
         statusCode: 409,
       });
     setProfile(nextProfile);
+    const nextBusinesses = auth.user.userType === "CUSTOMER" ? [] : (auth.organizations ?? []).filter(item => ["ORG_ADMIN", "SERVICE_PROVIDER", "STAFF_MANAGER", "STAFF"].includes(item.role));
+    setBusinesses(nextBusinesses);
     setUser(buildSessionUser(auth.user, nextProfile));
     setActivePersona((current) =>
       current === "agent" && toSessionRoles(auth.user.roles).includes("AGENT")
         ? "agent"
-        : "customer",
+        : nextBusinesses.length && (current === "business" || !personaChosen.current) ? "business" : "customer",
     );
     setAuthError(null);
   }, []);
@@ -244,9 +253,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
         await hydrateCurrentUser();
       } catch {
         if (generation !== sessionGeneration.current) return;
+        setBusinesses(auth.user.userType === "CUSTOMER" ? [] : (auth.organizations ?? []).filter(item => ["ORG_ADMIN", "SERVICE_PROVIDER", "STAFF_MANAGER", "STAFF"].includes(item.role)));
         setUser(buildSessionUser(auth.user, null));
         setProfile(null);
       }
+      if (generation === sessionGeneration.current && auth.user.userType !== "CUSTOMER" && (auth.organizations ?? []).some(item => ["ORG_ADMIN", "SERVICE_PROVIDER", "STAFF_MANAGER", "STAFF"].includes(item.role))) setActivePersona("business");
     },
     [hydrateCurrentUser],
   );
@@ -367,12 +378,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
       isHydrating,
       authError,
       canUseAgentMode,
+      businesses,
+      canUseBusinessMode: businesses.length > 0,
       switchPersona: (persona) => {
+        if (persona === "business" && !businesses.length) return;
         if (persona === "agent" && !canUseAgentMode) {
           setActivePersona("customer");
           return;
         }
 
+        personaChosen.current = true;
         setActivePersona(persona);
       },
       signIn,
@@ -388,6 +403,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       activePersona,
       authError,
       canUseAgentMode,
+      businesses,
       isHydrating,
       refreshProfile,
       signIn,

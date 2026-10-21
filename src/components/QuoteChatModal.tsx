@@ -16,15 +16,16 @@ function timeLabel(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-export function QuoteChatModal({ visible, conversation, conversations, serviceName, draft, sending, error, syncIssue, onClose, onSelect, onDraftChange, onSend, onRefresh }: {
+export function QuoteChatModal({ visible, conversation, conversations, serviceName, draft, sending, error, syncIssue, onClose, onSelect, onDraftChange, onSend, onRefresh, ownRole = "REQUESTER", headingName }: {
   visible: boolean; conversation: CustomerQuoteConversation; conversations: CustomerQuoteConversation[]; serviceName: string;
+  ownRole?: "REQUESTER" | "PROVIDER"; headingName?: string;
   draft: string; sending: boolean; error: string | null; syncIssue: string | null;
   onClose: () => void; onSelect: (id: string) => void; onDraftChange: (text: string) => void; onSend: () => void; onRefresh: () => void;
 }) {
   const list = useRef<FlatList<CustomerQuoteMessage>>(null);
   const nearBottom = useRef(true);
   const [newBelow, setNewBelow] = useState(false);
-  const providerName = conversation.provider?.displayName || "Your provider";
+  const providerName = headingName || conversation.provider?.displayName || "Your provider";
   const closed = conversation.status === "ARCHIVED";
   const lastId = conversation.messages.at(-1)?.id;
   useEffect(() => { nearBottom.current = true; setNewBelow(false); }, [conversation.id, visible]);
@@ -56,7 +57,7 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
             onContentSizeChange={() => { if (nearBottom.current) list.current?.scrollToEnd({ animated: false }); }}
             ListEmptyComponent={<View style={styles.empty}><View style={styles.emptyIcon}><FontAwesome6 name="comments" size={25} color={tokens.colors.ink} /></View><Text style={styles.emptyTitle}>Start the conversation</Text><Text style={styles.emptyText}>Ask {providerName} about your request, timing or service details.</Text></View>}
             renderItem={({ item, index }) => {
-              const own = item.senderRole === "REQUESTER" || Boolean(conversation.requesterEmail && item.senderEmail === conversation.requesterEmail);
+              const own = item.senderRole === ownRole || (ownRole === "REQUESTER" && Boolean(conversation.requesterEmail && item.senderEmail === conversation.requesterEmail));
               const previous = conversation.messages[index - 1];
               const showDay = !previous || dayLabel(previous.createdAt) !== dayLabel(item.createdAt);
               return <View>

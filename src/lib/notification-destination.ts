@@ -13,6 +13,12 @@ export function notificationDestination(item: InboxNotification) {
       return { route: `/(tabs)/workbench${requestId ? `?requestId=${encodeURIComponent(requestId)}` : ""}`, label: "View request", native: true };
     }
     if (/^\/customer\/(settings|account)\/?$/.test(path)) return { route: "/(tabs)/account", label: "View account", native: true };
+    if (/^\/provider\/(dashboard|calendar|bookings)\/?$/.test(path)) return { route: `/business/calendar${booking && /^[0-9a-f-]{36}$/i.test(booking) ? `?booking=${booking}` : ""}`, label: "View business booking", native: true };
+    if (/^\/provider\/(requests|messages)\/?$/.test(path)) {
+      const match = url.searchParams.get("matchId") || url.searchParams.get("quoteMatchId");
+      return { route: `/business/requests${match && /^[0-9a-f-]{36}$/i.test(match) ? `?matchId=${match}` : ""}`, label: "View customer request", native: true };
+    }
+    if (/^\/provider\/settings\/?$/.test(path)) return { route: "/business/manage", label: "View business settings", native: true };
     const provider = path.match(/^\/marketplace\/providers\/([a-z0-9-]+)\/?$/i);
     if (provider) return { route: `/providers/${encodeURIComponent(provider[1]!)}`, label: "View provider", native: true };
     return { route: url.toString(), label: "Open BookMiz website", native: false };

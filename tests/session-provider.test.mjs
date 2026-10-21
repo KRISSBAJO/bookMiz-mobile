@@ -100,6 +100,26 @@ function fixture(overrides = {}) {
     tokens: () => tokens,
   };
 }
+test('business memberships open the merchant workspace and logout removes every business', async () => {
+  const merchant = { ...auth, user: { ...auth.user, userType: 'INTERNAL', roles: ['ORG_ADMIN'] }, organizations: [{ id: 'org', displayName: 'Fixture studio', slug: 'fixture', role: 'ORG_ADMIN' }] };
+  const f = fixture({ getCurrentAuth: async () => merchant }); let tree;
+  await act(async () => { tree = f.mount(); });
+  await act(async () => { await f.session().applyAuthResponse(merchant); });
+  assert.equal(f.session().canUseBusinessMode, true); assert.equal(f.session().activePersona, 'business');
+  await act(async () => { f.session().switchPersona('customer'); await f.session().refreshProfile(); });
+  assert.equal(f.session().activePersona, 'customer');
+  await act(async () => { await f.session().signOut(); });
+  assert.deepEqual(f.session().businesses, []); assert.equal(f.session().canUseBusinessMode, false);
+  await act(async () => tree.unmount());
+});
+test('customer identities cannot gain business access from an inconsistent organization response', async () => {
+  const customer = { ...auth, organizations: [{ id: 'org', role: 'ORG_ADMIN' }] };
+  const f = fixture({ getCurrentAuth: async () => customer }); let tree;
+  await act(async () => { tree = f.mount(); });
+  await act(async () => { await f.session().applyAuthResponse(customer); f.session().switchPersona('business'); });
+  assert.equal(f.session().canUseBusinessMode, false); assert.equal(f.session().activePersona, 'customer');
+  await act(async () => tree.unmount());
+});
 test("late sign-in responses cannot sign a user back in after logout", async () => {
   const response = deferred(),
     f = fixture({ loginMobile: () => response.promise });
