@@ -51,6 +51,7 @@ export function searchProviders(params?: {
   locationQuery?: string;
   city?: string;
   stateCode?: string;
+  countryCode?: string;
   latitude?: number;
   longitude?: number;
   radiusMiles?: number;
@@ -65,6 +66,7 @@ export function searchProviders(params?: {
     locationQuery: params?.locationQuery,
     city: params?.city,
     stateCode: params?.stateCode,
+    countryCode: params?.countryCode,
     latitude: params?.latitude,
     longitude: params?.longitude,
     radiusMiles: params?.radiusMiles,

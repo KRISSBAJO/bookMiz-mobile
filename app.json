@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.bookmiz",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -22,7 +22,7 @@
         "backgroundColor": "#132849"
       },
       "package": "com.bookmiz.customeragent",
-      "versionCode": 2,
+      "versionCode": 3,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -40,6 +40,12 @@
           "image": "./assets/bookmiz/logo.png",
           "resizeMode": "contain",
           "backgroundColor": "#132849"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow BookMiz to find services near your current city."
         }
       ]
     ],

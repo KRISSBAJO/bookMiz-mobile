@@ -153,7 +153,7 @@ export function NativeBookingScreen() {
           ) * DAY_STRIP_LENGTH,
         );
       }
-      if (draft.locationId && profile?.provider.locations.some(item => item.id === draft.locationId)) setLocationId(draft.locationId);
+      if ((!requestedLocationId || draft.locationId === requestedLocationId) && draft.locationId && profile?.provider.locations.some(item => item.id === draft.locationId)) setLocationId(draft.locationId);
       setChannel(draft.channel || "");
       setNotes(draft.notes || "");
       setIntake(draft.intake || {});
@@ -163,9 +163,11 @@ export function NativeBookingScreen() {
 
   useEffect(() => {
     let active = true;
+    setProfile(null);setSelected(null);setSlots([]);setLoading(true);setError(null);
     getMarketplaceProvider(slug)
       .then((value) => {
         if (!active) return;
+        if (requestedLocationId && !value.provider.locations.some(item => item.id === requestedLocationId)) throw new Error("This business location is no longer available. Please choose another location.");
         setProfile(value);
         setLocationId(value.provider.locations.find(item => item.id === requestedLocationId)?.id || value.provider.primaryLocation?.id || value.provider.locations[0]?.id || "");
         const parts = Object.fromEntries(
@@ -197,7 +199,7 @@ export function NativeBookingScreen() {
     return () => {
       active = false;
     };
-  }, [slug]);
+  }, [slug, requestedLocationId]);
 
   const services = useMemo(
     () => profile?.services.groups.flatMap((group) => group.services) || [],

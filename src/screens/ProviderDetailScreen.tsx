@@ -54,9 +54,10 @@ function formatReviewDate(value: string) {
 
 export function ProviderDetailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ slug?: string | string[] }>();
+  const params = useLocalSearchParams<{ slug?: string | string[]; locationId?: string | string[] }>();
   const session = useSession();
   const slug = normalizeSlug(params.slug);
+  const locationId = Array.isArray(params.locationId) ? params.locationId[0] : params.locationId;
 
   const [profile, setProfile] = useState<MarketplaceProviderProfile | null>(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -86,7 +87,9 @@ export function ProviderDetailScreen() {
           : Promise.resolve([]),
       ]);
 
-      setProfile(nextProfile);
+      const branch = locationId ? nextProfile.provider.locations.find(branch => branch.id === locationId) : null;
+      if (locationId && !branch) throw new Error("This business location is no longer available. Please choose another business or location.");
+      setProfile(branch ? {...nextProfile,provider:{...nextProfile.provider,primaryLocation:branch,map:{latitude:branch.latitude,longitude:branch.longitude,addressLabel:branch.addressLabel}}} : nextProfile);
       setIsBookmarked(
         bookmarks.some((provider) => provider.id === nextProfile.provider.id),
       );
@@ -99,7 +102,7 @@ export function ProviderDetailScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [session.isSignedIn, slug]);
+  }, [session.isSignedIn, slug, locationId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -144,8 +147,8 @@ export function ProviderDetailScreen() {
       return;
     }
 
-    router.push({ pathname: "/booking/[slug]", params: { slug } } as never);
-  }, [router, slug]);
+    router.push({ pathname: "/booking/[slug]", params: { slug, locationId: profile?.provider.primaryLocation?.id } } as never);
+  }, [router, slug, profile?.provider.primaryLocation?.id]);
 
   const currencyCode = profile?.provider.currencyCode;
   const priceTier = formatPriceTier(profile?.provider.priceRangeLabel);

@@ -1,3 +1,5 @@
+import { useDiscovery } from '../store/discovery-context';
+import { discoverySearch } from '../lib/discovery-location';
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -230,6 +232,11 @@ async function searchProvidersWithPriority(options: {
   serviceModel: MarketplaceSearchServiceModel;
   locationQuery?: string;
   stateCode?: string;
+  city?: string;
+  countryCode?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusMiles?: number;
   sort: MarketplaceSort;
 }) {
   const exactResponse = await runMarketplaceSearch({
@@ -237,6 +244,12 @@ async function searchProvidersWithPriority(options: {
     categorySlug: options.categorySlug,
     serviceModel: options.serviceModel,
     locationQuery: options.locationQuery,
+    city: options.city,
+    stateCode: options.stateCode,
+    countryCode: options.countryCode,
+    latitude: options.latitude,
+    longitude: options.longitude,
+    radiusMiles: options.radiusMiles,
     sort: options.sort,
     page: 1,
     pageSize: PAGE_SIZE,
@@ -282,6 +295,8 @@ export function ExploreScreen() {
     sort?: string;
   }>();
   const session = useSession();
+  const discovery = useDiscovery();
+  const discoveryKey = JSON.stringify(discoverySearch(discovery.selected));
 
   const [draftQuery, setDraftQuery] = useState(params.query ?? "");
   const [draftLocation, setDraftLocation] = useState(
@@ -372,7 +387,9 @@ export function ExploreScreen() {
                   query: appliedQuery.trim() || undefined,
                   categorySlug: activeCategory,
                   serviceModel,
-                  locationQuery: normalizedLocation || undefined,
+                  stateCode: discovery.selected ? undefined : stateCode,
+                  locationQuery: discovery.selected ? undefined : normalizedLocation || undefined,
+                  ...discoverySearch(discovery.selected),
                   sort,
                   page,
                   pageSize: PAGE_SIZE,
@@ -381,8 +398,10 @@ export function ExploreScreen() {
                   query: appliedQuery.trim() || undefined,
                   categorySlug: activeCategory,
                   serviceModel,
-                  locationQuery: normalizedLocation || undefined,
-                  stateCode,
+                  stateCode: discovery.selected ? undefined : stateCode,
+                  locationQuery: discovery.selected ? undefined : normalizedLocation || undefined,
+                  ...discoverySearch(discovery.selected),
+
                   sort,
                 }),
             session.isSignedIn
@@ -454,6 +473,7 @@ export function ExploreScreen() {
     },
     [
       activeCategory,
+      discoveryKey,
       appliedLocation,
       appliedQuery,
       serviceModel,
@@ -480,7 +500,7 @@ export function ExploreScreen() {
 
     return searchData.results.length > 0
       ? searchData.results
-      : searchData.featuredProviders;
+      : searchData.alternatives ?? searchData.featuredProviders;
   }, [searchData]);
 
   const featuredProviders = useMemo(
@@ -507,7 +527,7 @@ export function ExploreScreen() {
     searchData.results.length > 0;
 
   const locationLabel =
-    searchData?.query.locationLabel ?? (appliedLocation.trim() || null);
+    discovery.selected?.label ?? searchData?.query.locationLabel ?? (appliedLocation.trim() || null);
 
   const heroSubtitle = searchData?.pagination.total
     ? `${searchData.pagination.total} provider${
@@ -699,7 +719,7 @@ export function ExploreScreen() {
       >
         <Pressable
           style={styles.controlChip}
-          onPress={() => setFiltersOpen(true)}
+          onPress={() => router.push("/choose-city" as never)}
           accessibilityRole="button"
           accessibilityLabel="Change location"
         >
@@ -776,7 +796,7 @@ export function ExploreScreen() {
                   provider={provider}
                   isBookmarked={bookmarkedIds.includes(provider.id)}
                   onPress={() =>
-                    router.push(`/providers/${provider.slug}` as never)
+                    router.push(`/providers/${provider.slug}${provider.primaryLocation?.id ? `?locationId=${provider.primaryLocation.id}` : ""}` as never)
                   }
                   onToggleBookmark={
                     session.isSignedIn
@@ -792,11 +812,11 @@ export function ExploreScreen() {
 
       <View style={styles.section}>
         <SectionHeader
-          title={searchData?.headline ?? "Results"}
+          title={!searchData?.results.length && searchData?.alternatives?.length ? searchData.alternativesOrder === "distance" ? "Nearest available businesses" : "Explore businesses in other cities" : searchData?.headline ?? "Results"}
           subtitle={
             searchData?.pagination.total
               ? `${searchData.pagination.total} provider${searchData.pagination.total === 1 ? "" : "s"}`
-              : undefined
+              : searchData?.alternatives?.length ? "No local matches yet. These businesses are in other areas; check their address before booking." : undefined
           }
         />
 
@@ -809,7 +829,7 @@ export function ExploreScreen() {
               provider={provider}
               isBookmarked={bookmarkedIds.includes(provider.id)}
               onPress={() =>
-                router.push(`/providers/${provider.slug}` as never)
+                router.push(`/providers/${provider.slug}${provider.primaryLocation?.id ? `?locationId=${provider.primaryLocation.id}` : ""}` as never)
               }
               onToggleBookmark={
                 session.isSignedIn
@@ -960,35 +980,7 @@ export function ExploreScreen() {
                 onChangeText={setDraftQuery}
                 autoComplete="off"
               />
-              <AuthField
-                label="Location"
-                placeholder="City, state, or zip"
-                value={draftLocation}
-                onChangeText={setDraftLocation}
-                autoComplete="off"
-                labelAccessory={
-                  session.profile?.city ? (
-                    <Pressable
-                      onPress={() => {
-                        const profileCity = session.profile?.city;
-                        if (!profileCity) {
-                          return;
-                        }
-
-                        const location = session.profile?.stateCode
-                          ? `${profileCity}, ${session.profile.stateCode}`
-                          : profileCity;
-                        setDraftLocation(location);
-                      }}
-                      accessibilityRole="button"
-                      hitSlop={8}
-                    >
-                      <Text style={styles.fieldLink}>Use my city</Text>
-                    </Pressable>
-                  ) : null
-                }
-              />
-
+              <Pressable accessibilityRole="button" onPress={() => { setFiltersOpen(false); router.push("/choose-city" as never); }}><Text style={styles.controlChipText}>Choose supported city → {discovery.selected?.city ?? "Choose city"}</Text></Pressable>
               <View style={styles.modalGroup}>
                 <Text style={styles.modalLabel}>Type</Text>
                 <View style={styles.wrapRow}>

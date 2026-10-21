@@ -256,6 +256,8 @@ export type MarketplaceProviderCard = {
 };
 
 export type MarketplaceSearchResponse = {
+  alternatives?: MarketplaceProviderCard[];
+  alternativesOrder?: 'distance' | 'available';
   headline: string;
   query: {
     term: string;

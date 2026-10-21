@@ -1,8 +1,10 @@
+import { useDiscovery } from '../store/discovery-context';
+import { discoverySearch } from '../lib/discovery-location';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -15,7 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { priceLineFor } from "@/src/components/marketplace/ProviderCard";
+import { ProviderCard, priceLineFor } from "@/src/components/marketplace/ProviderCard";
 import { SectionHeader } from "@/src/components/SectionHeader";
 import { ProfileAvatar } from "@/src/components/ProfileAvatar";
 import { listCustomerBookings } from "@/src/lib/api/bookings";
@@ -135,6 +137,9 @@ export function HomeScreen() {
   const actionColumns = actionWidth >= 680 ? 4 : 2;
   const router = useRouter();
   const session = useSession();
+  const discovery = useDiscovery();
+  const discoveryKey = JSON.stringify(discoverySearch(discovery.selected));
+  const [hasLocalResults, setHasLocalResults] = useState(false);
   const [categories, setCategories] = useState<MarketplaceCategoryDiscovery[]>(
     [],
   );
@@ -144,11 +149,14 @@ export function HomeScreen() {
   const [bookmarks, setBookmarks] = useState<MarketplaceProviderCard[]>([]);
   const [requests, setRequests] = useState<CustomerQuoteRequest[]>([]);
   const [bookings, setBookings] = useState<CustomerBookingRecord[]>([]);
+  const [alternativesOrder, setAlternativesOrder] = useState("available");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
+  const feedGeneration = useRef(0);
   const loadHomeData = useCallback(async () => {
+    const version = ++feedGeneration.current;
     if (!session.user) {
       return;
     }
@@ -166,6 +174,7 @@ export function HomeScreen() {
       ] = await Promise.all([
         listCategoryDiscovery("LOCAL"),
         searchProviders({
+          ...discoverySearch(discovery.selected),
           serviceModel: "LOCAL",
           sort: "recommended",
           pageSize: 6,
@@ -182,16 +191,20 @@ export function HomeScreen() {
           : Promise.resolve([]),
       ]);
 
+      if (version !== feedGeneration.current) return;
       setCategories(nextCategories);
+      setHasLocalResults(marketplace.results.length > 0);
+      setAlternativesOrder(marketplace.alternativesOrder ?? "available");
       setFeaturedProviders(
         marketplace.featuredProviders.length > 0
           ? marketplace.featuredProviders
-          : marketplace.results,
+          : marketplace.results.length ? marketplace.results : marketplace.alternatives ?? [],
       );
       setRequests(nextRequests);
       setBookmarks(nextBookmarks);
       setBookings(nextBookings);
     } catch (nextError) {
+      if (version !== feedGeneration.current) return;
       setError(
         getFriendlyApiError(
           nextError,
@@ -199,23 +212,20 @@ export function HomeScreen() {
         ),
       );
     } finally {
-      setIsLoading(false);
+      if (version === feedGeneration.current) setIsLoading(false);
     }
-  }, [session.user]);
+  }, [session.user, discoveryKey]);
 
   useFocusEffect(
     useCallback(() => {
       void loadHomeData();
+      return () => { feedGeneration.current++; };
     }, [loadHomeData]),
   );
 
   const firstName = session.user?.firstName ?? "there";
-  const city = session.profile?.city ?? session.user?.city ?? null;
-  const defaultLocationQuery = session.profile?.city
-    ? session.profile?.stateCode
-      ? `${session.profile.city}, ${session.profile.stateCode}`
-      : session.profile.city
-    : undefined;
+  const city = (discovery.selected?.id === "current" ? discovery.selected.label : discovery.selected?.city || discovery.selected?.label) ?? "Choose city";
+  const defaultLocationQuery = discovery.selected?.label;
 
   const nextBooking = useMemo(() => {
     const now = Date.now();
@@ -265,8 +275,11 @@ export function HomeScreen() {
   );
 
   const openProvider = useCallback(
-    (slug: string) => router.push(`/providers/${slug}` as never),
-    [router],
+    (slug: string) => {
+      const locationId = [...bookmarks, ...featuredProviders].find(provider => provider.slug === slug)?.primaryLocation?.id;
+      router.push(`/providers/${slug}${locationId ? `?locationId=${locationId}` : ""}` as never);
+    },
+    [router, bookmarks, featuredProviders],
   );
 
   function submitSearch() {
@@ -291,7 +304,7 @@ export function HomeScreen() {
         >
           <View style={styles.topRow}>
             <Pressable
-              onPress={() => router.push("/(tabs)/account" as never)}
+              onPress={() => router.push("/choose-city" as never)}
               accessibilityRole="button"
               accessibilityLabel="Account"
               style={styles.avatar}
@@ -323,7 +336,7 @@ export function HomeScreen() {
                 />
                 <Text style={styles.cityChipText} numberOfLines={1}>
                   {city}
-                </Text>
+                </Text><FontAwesome6 name="chevron-down" size={10} color={tokens.colors.ink} />
               </Pressable>
             ) : null}
             <Pressable
@@ -485,9 +498,10 @@ export function HomeScreen() {
             </View>
           ) : null}
 
+          {bookmarks.length > 0 && discovery.selected ? <View style={styles.section}><SectionHeader title={hasLocalResults ? `In ${city}` : alternativesOrder === 'distance' ? 'Nearest available businesses' : 'Explore businesses in other cities'} subtitle={hasLocalResults ? 'Services in your selected city' : `Availability in ${city} is growing. These businesses are in other cities.`} actionLabel="Change city" onAction={() => router.push('/choose-city' as never)} />{featuredProviders.slice(0,3).map(provider => <ProviderCard key={provider.id} provider={provider} onPress={() => openProvider(provider.slug)} />)}</View> : null}
           <View style={styles.section}>
             <SectionHeader
-              title={bookmarks.length > 0 ? "Saved" : "Near you"}
+              title={bookmarks.length > 0 ? "Saved" : hasLocalResults && discovery.selected ? `In ${city}` : alternativesOrder === "distance" ? "Nearest available businesses" : "Explore businesses in other cities"}
               actionLabel={bookmarks.length > 0 ? "See all" : "Explore"}
               onAction={() =>
                 bookmarks.length > 0

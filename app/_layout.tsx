@@ -1,3 +1,4 @@
+import { DiscoveryProvider } from '@/src/store/discovery-context';
 import { DefaultTheme, ThemeProvider } from "expo-router/react-navigation";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -45,7 +46,7 @@ export default function RootLayout() {
 
   return (
     <SessionProvider>
-      <ThemeProvider value={navigationTheme}>
+      <DiscoveryProvider><ThemeProvider value={navigationTheme}>
         <PushNotificationBridge />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="welcome" />
@@ -62,7 +63,7 @@ export default function RootLayout() {
           <Stack.Screen name="providers/[slug]" />
           <Stack.Screen name="(tabs)" />
         </Stack>
-      </ThemeProvider>
+      </ThemeProvider></DiscoveryProvider>
     </SessionProvider>
   );
 }
