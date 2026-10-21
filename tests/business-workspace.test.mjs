@@ -365,6 +365,35 @@ test('appointment actions follow backend lifecycle and terminal appointments hav
   assert.deepEqual(policy.bookingActions('CHECKED_IN'), ['COMPLETED']);
   for (const status of ['CANCELLED', 'COMPLETED', 'NO_SHOW']) assert.deepEqual(policy.bookingActions(status), []);
 });
+test('availability generation previews before saving and requires a fresh review after conflicts', async t => {
+  const calls = [];
+  const plan = { planHash: 'a'.repeat(64), timezone: 'America/Chicago', slotCount: 1, slots: [{ date: '2026-10-28T00:00:00Z', startTime: '09:00', endTime: '09:30', staffMemberId: 's', locationId: 'l', slotCapacity: 1 }] };
+  const f = fixture({ businessRequest: async (path, org, method, body) => { calls.push({ path, org, method, body }); if (path === 'time-slots/preview') return plan; throw new Error('Availability changed. Preview the dates again.'); } });
+  const { AvailabilityGenerator } = f.load('src/components/business/AvailabilityGenerator.tsx');
+  let tree;
+  await act(async () => { tree = create(React.createElement(AvailabilityGenerator, { settings: { staffMembers: [{ id: 's', displayName: 'Sam', status: 'ACTIVE', isBookable: true }], locations: [{ id: 'l', name: 'Studio' }] }, services: [{ id: 'service', name: 'Haircut', isActive: true }], onClose() {}, onSaved: async () => {} })); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  assert.equal(calls.length, 0);
+  await act(async () => findButton(tree, 'Preview available slots').props.onPress());
+  assert.deepEqual(calls.map(call => call.path), ['time-slots/preview']);
+  assert.match(JSON.stringify(tree.toJSON()), /09:00/);
+  await act(async () => findButton(tree, 'Confirm & create slots').props.onPress());
+  assert.equal(calls[1].body.expectedPlanHash, plan.planHash); assert.equal(calls[1].org, 'org');
+  assert.match(JSON.stringify(tree.toJSON()), /Availability changed/);
+  assert(findButton(tree, 'Preview available slots'));
+  assert.equal(tree.root.findAllByType('Pressable').filter(node => node.props.children?.some?.(child => child?.props?.children === 'Confirm & create slots')).length, 0);
+});
+
+test('a zero-slot availability preview never enables creation', async t => {
+  const f = fixture({ businessRequest: async () => ({ planHash: 'b'.repeat(64), timezone: 'America/Chicago', slotCount: 0, slots: [] }) });
+  const { AvailabilityGenerator } = f.load('src/components/business/AvailabilityGenerator.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(AvailabilityGenerator, { settings: { staffMembers: [], locations: [] }, services: [{ id: 'service', name: 'Haircut', isActive: true }], onClose() {}, onSaved: async () => {} })); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  await act(async () => findButton(tree, 'Preview available slots').props.onPress());
+  assert.equal(findButton(tree, 'Confirm & create slots').props.disabled, true);
+  assert.match(JSON.stringify(tree.toJSON()), /Set working hours first/);
+});
+
 function findButton(tree, label) {
   const node = tree.root.findAllByType('Pressable').find(item => item.findAllByType('Text').some(t => t.children.join('') === label));
   assert.ok(node, `Missing button ${label}`); return node;
