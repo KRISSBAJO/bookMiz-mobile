@@ -20,6 +20,8 @@ function fixture(api = {}, overrides = {}, options = {}) {
     let filename = path.resolve(root, relative);
     if (!path.extname(filename)) filename += filename.includes('context') || filename.includes('components') || filename.includes('screens') ? '.tsx' : '.ts';
     const canonical = filename.replaceAll('\\', '/');
+    if (options.screenStubs && canonical.endsWith('/MerchantChat.tsx')) return { MerchantChat: props => React.createElement('MerchantChat', props) };
+    if (options.screenStubs && canonical.endsWith('/InboxScreen.tsx')) return { InboxScreen: () => React.createElement('InboxScreen') };
     if (canonical.endsWith('business-context.tsx')) return { useBusiness: () => business, BusinessSelector: 'BusinessSelector' };
     if (canonical.endsWith('session-context.tsx')) return { useSession: () => ({ user: { id: 'user' } }) };
     if (canonical.endsWith('api/client.ts')) return { requestJson: api.requestJson };
@@ -127,6 +129,69 @@ test('cover data prefers the published cover, then booking banner, with a defaul
     } }, {}, { realBusinessApi: true });
     const { getMerchantCover } = f.load('src/lib/api/business.ts');
     assert.equal((await getMerchantCover('org', 'my-studio')).url, scenario === 'cover' ? 'https://images.example.test/cover.jpg' : scenario === 'banner' ? 'https://images.example.test/banner.jpg' : null);
+  }
+});
+
+const requestFixture = (id, status, conversation = null, currencyCode = 'USD', min = 0, max = 0) => ({ id, status, unlockPriceCents: 100, matchedService: null, request: { id: 'request-' + id, requesterName: 'Client ' + id, requestedServiceName: 'Service ' + id, description: 'Brief ' + id, desiredDate: null, city: 'Chicago', stateCode: 'IL', currencyCode, budgetMinCents: min, budgetMaxCents: max }, conversation });
+const threadFixture = (date, status = 'OPEN', content = 'Hello', senderRole = 'REQUESTER') => ({ id: 'thread-' + date, status, updatedAt: date, lastMessage: { content, senderRole, createdAt: date } });
+
+test('conversation ordering and queue budgets preserve history and exact request currency', () => {
+  const { recentConversations, conversationIsOpen, requestBudget } = fixture().load('src/lib/merchant-inbox.ts');
+  const rows = [requestFixture('old', 'UNLOCKED', threadFixture('2026-10-20T10:00:00Z')), requestFixture('locked', 'AVAILABLE'), requestFixture('new', 'ACCEPTED', threadFixture('2026-10-21T10:00:00Z')), requestFixture('expired', 'EXPIRED', threadFixture('2026-10-22T10:00:00Z'))];
+  assert.deepEqual(recentConversations(rows).map(x => x.id), ['expired', 'new', 'old']); assert.equal(rows[0].id, 'old');
+  assert.equal(conversationIsOpen(rows[2]), true); assert.equal(conversationIsOpen(rows[3]), false);
+  assert.match(requestBudget(requestFixture('zero', 'AVAILABLE')), /USD\s0.00/);
+  assert.match(requestBudget(requestFixture('naira', 'AVAILABLE', null, 'NGN', 1299, null)), /From NGN\s12.99/);
+  assert.equal(requestBudget(requestFixture('none', 'AVAILABLE', null, 'USD', null, null)), 'Budget not specified');
+});
+
+test('Requests is a brief-review queue with original budgets and no duplicate inbox controls', async t => {
+  let writes = 0;
+  const f = fixture({ getMerchantRequests: async org => { assert.equal(org, 'org'); return { requests: [requestFixture('new', 'AVAILABLE'), requestFixture('chat', 'UNLOCKED', threadFixture('2026-10-21T10:00:00Z'), 'NGN', 1299, 1299)] }; }, merchantMatch: async () => { writes++; } }, {}, { screenStubs: true });
+  const { MerchantRequestsScreen } = f.load('src/screens/business/MerchantRequestsScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantRequestsScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Request queue/); assert.match(output, /CUSTOMER BUDGET/); assert.match(output, /NGN/); assert.match(output, /12.99/); assert.match(output, /USD/); assert.match(output, /0.00/); assert.doesNotMatch(output, /Search messages|Open conversation with/);
+  const card = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel?.startsWith('Review request: Service new'));
+  await act(async () => card.props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 1); assert.equal(writes, 0);
+});
+
+test('Messages uses recent conversation rows and opens chat directly without request review', async t => {
+  const f = fixture({ getMerchantRequests: async () => ({ requests: [requestFixture('locked', 'AVAILABLE'), requestFixture('older', 'UNLOCKED', threadFixture('2026-10-20T10:00:00Z', 'OPEN', 'Can we meet?')), requestFixture('latest', 'ACCEPTED', threadFixture('2026-10-21T10:00:00Z', 'OPEN', 'Yes, see you then', 'PROVIDER')), requestFixture('closed', 'EXPIRED', threadFixture('2026-10-19T10:00:00Z', 'ARCHIVED'))] }) }, {}, { screenStubs: true });
+  const { MerchantMessagesScreen } = f.load('src/screens/business/MerchantMessagesScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantMessagesScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /You: Yes, see you then/); assert.match(output, /Closed conversation/); assert.doesNotMatch(output, /CUSTOMER BUDGET|Request queue|Client locked|unread/);
+  const rows = tree.root.findAllByType('Pressable').filter(x => x.props.accessibilityLabel?.startsWith('Open conversation with'));
+  assert.match(rows[0].props.accessibilityLabel, /Client latest/);
+  await act(async () => rows[0].props.onPress()); assert.equal(tree.root.findByType('MerchantChat').props.matchId, 'latest'); assert.equal(tree.root.findAllByType('Modal').length, 0);
+  await act(async () => tree.root.findByType('MerchantChat').props.onClose()); assert.equal(tree.root.findAllByType('MerchantChat').length, 0);
+  const closed = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel === 'Closed conversations');
+  await act(async () => closed.props.onPress());
+  assert.equal(tree.root.findAllByType('Pressable').filter(x => x.props.accessibilityLabel?.startsWith('Open conversation with')).length, 1);
+});
+
+test('staff inbox preserves linked-request access and Alerts can return to messages', async t => {
+  const f = fixture({ getMerchantRequests: async () => ({ requests: [requestFixture('staff', 'UNLOCKED', threadFixture('2026-10-21T10:00:00Z'))] }) }, { canManage: false }, { screenStubs: true });
+  const { MerchantMessagesScreen } = f.load('src/screens/business/MerchantMessagesScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantMessagesScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const row = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel?.startsWith('View linked request'));
+  await act(async () => row.props.onPress()); assert.deepEqual(f.routes, ['/business/requests?matchId=staff']); assert.equal(tree.root.findAllByType('MerchantChat').length, 0);
+  await act(async () => findButton(tree, 'Alerts').props.onPress()); assert.equal(tree.root.findAllByType('InboxScreen').length, 1);
+  await act(async () => findButton(tree, 'Back to messages').props.onPress()); assert.equal(tree.root.findAllByType('InboxScreen').length, 0);
+});
+
+test('conversation deep links are scoped and consumed after dismissal without expanding staff access', async () => {
+  for (const canManage of [true, false]) {
+    const f = fixture({ getMerchantRequests: async org => { assert.equal(org, 'org'); return { requests: [requestFixture('link', 'UNLOCKED', threadFixture('2026-10-21T10:00:00Z'))] }; } }, { canManage }, { screenStubs: true, params: { matchId: 'link' } });
+    const { MerchantMessagesScreen } = f.load('src/screens/business/MerchantMessagesScreen.tsx'); let tree;
+    await act(async () => { tree = create(React.createElement(MerchantMessagesScreen)); });
+    try {
+      if (canManage) { assert.equal(tree.root.findByType('MerchantChat').props.matchId, 'link'); await act(async () => tree.root.findByType('MerchantChat').props.onClose()); assert.equal(tree.root.findAllByType('MerchantChat').length, 0); }
+      else { assert.equal(tree.root.findAllByType('MerchantChat').length, 0); assert.deepEqual(f.routes, ['/business/requests?matchId=link']); }
+      assert.equal(f.params.matchId, undefined);
+    } finally { await act(async () => tree.unmount()); }
   }
 });
 

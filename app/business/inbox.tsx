@@ -1,1 +1,1 @@
-export { MerchantMessagesScreen as default } from '@/src/screens/business/MerchantRequestsScreen';
+export { MerchantMessagesScreen as default } from '@/src/screens/business/MerchantMessagesScreen';
