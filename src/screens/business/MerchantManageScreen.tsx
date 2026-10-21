@@ -5,7 +5,7 @@ import { Screen } from '../../components/Screen';
 import { BusinessSelector, useBusiness } from '../../store/business-context';
 import { useSession } from '../../store/session-context';
 import { businessRequest, getMerchantServices, getMerchantSettings, type MerchantService, type Rule } from '../../lib/api/business';
-import { formatBusinessMoney } from '../../lib/business-policy';
+import { formatBusinessMoney, canManageBusinessMoney } from '../../lib/business-policy';
 import { Action, Badge, Choices, Editor, Empty, Field, Notice, ui, useBusinessData, useBusinessMutation } from '../../components/business/BusinessUI';
 import { ServiceEditor } from '../../components/business/ServiceEditor';
 import { AvailabilityEditor, weekdays } from '../../components/business/AvailabilityEditor';
@@ -17,6 +17,7 @@ export function MerchantManageScreen() {
   const services = state.data?.catalog.categories.flatMap(c => c.services.map(s => ({ ...s, categoryId: c.id, categoryName: c.name }))) ?? [];
   return <Screen title="Business" eyebrow={b.workspace.displayName} showBack={false} subtitle="Your services, schedule and team." refreshing={state.loading} onRefresh={() => void state.refresh()}>
     <BusinessSelector /><View style={ui.wrap}><Action label="Customer workspace" secondary onPress={() => { session.switchPersona('customer'); router.replace('/(tabs)'); }} /><Action label="My account" secondary onPress={() => router.push('/(tabs)/account')} /></View>
+    {canManageBusinessMoney(b.businesses.find(x => x.id === b.organizationId)?.role) ? <View style={ui.card}><Text style={ui.title}>Money</Text><Text style={ui.muted}>Track payment and refund status, review available funds and manage payouts.</Text><Action label="Open money workspace" icon="wallet" onPress={() => router.push('./money')} /></View> : null}
     {!b.canManage ? <Text style={ui.muted}>Staff access · Your manager controls service and schedule changes.</Text> : null}
     <Choices label="Manage" items={[{ id: 'services', label: 'Services' }, { id: 'availability', label: 'Availability' }, { id: 'team', label: 'Team & locations' }]} value={section} onChange={setSection} />
     {state.error ? <Notice text={state.error} onRetry={() => void state.refresh()} /> : null}{mutation.error ? <Notice text={mutation.error} /> : null}{state.loading && !state.data ? <ActivityIndicator /> : null}
