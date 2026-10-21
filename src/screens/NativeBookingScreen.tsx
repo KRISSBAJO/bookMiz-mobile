@@ -13,10 +13,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthButton } from "@/src/components/auth/AuthButton";
 import { AuthField } from "@/src/components/auth/AuthField";
+import { Choices } from '@/src/components/business/BusinessUI';
 import { Screen } from "@/src/components/Screen";
 import { getMarketplaceProvider } from "@/src/lib/api/marketplace";
 import {
   createCustomerBooking,
+  resumeCustomerPayment,
   getPublicBookingAvailability,
   getPublicBookingAvailabilityMonth,
 } from "@/src/lib/api/bookings";
@@ -46,18 +48,20 @@ const channelLabels: Record<string, string> = {
   HOME_VISIT: "Home visit",
 };
 
-function formatSlotTime(value: string) {
+function formatSlotTime(value: string, timeZone: string) {
   return new Date(value).toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }
 
-function formatSlotDate(value: string) {
+function formatSlotDate(value: string, timeZone: string) {
   return new Date(value).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
+    timeZone,
   });
 }
 
@@ -86,15 +90,15 @@ function dateKeyParts(key: string) {
 
 const DAY_STRIP_LENGTH = 21;
 
-function slotPeriod(value: string): "Morning" | "Afternoon" | "Evening" {
-  const hour = new Date(value).getHours();
+function slotPeriod(value: string, timeZone: string): "Morning" | "Afternoon" | "Evening" {
+  const hour = Number(new Intl.DateTimeFormat("en", { timeZone, hour: "numeric", hourCycle: "h23" }).format(new Date(value)));
   if (hour < 12) return "Morning";
   if (hour < 17) return "Afternoon";
   return "Evening";
 }
 
 export function NativeBookingScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const { slug, locationId: requestedLocationId } = useLocalSearchParams<{ slug: string; locationId?: string }>();
   const router = useRouter();
   const session = useSession();
   const canBook = session.user?.userType === "CUSTOMER";
@@ -102,6 +106,9 @@ export function NativeBookingScreen() {
     null,
   );
   const [serviceId, setServiceId] = useState("");
+  const [locationId, setLocationId] = useState("");
+  const [checkoutPending, setCheckoutPending] = useState(false);
+  const businessTimezone = profile?.provider.timezone || "UTC";
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [slots, setSlots] = useState<PublicAvailabilitySlot[]>([]);
   const [selected, setSelected] = useState<PublicAvailabilitySlot | null>(null);
@@ -126,7 +133,7 @@ export function NativeBookingScreen() {
   );
   const { draftError, clearDraft } = useSavedDraft(
     session.user ? `${session.user.id}_booking_${slug}` : null,
-    { serviceId, date, channel, notes, intake },
+    { serviceId, locationId, date, channel, notes, intake },
     (draft) => {
       if (
         profile &&
@@ -146,6 +153,7 @@ export function NativeBookingScreen() {
           ) * DAY_STRIP_LENGTH,
         );
       }
+      if (draft.locationId && profile?.provider.locations.some(item => item.id === draft.locationId)) setLocationId(draft.locationId);
       setChannel(draft.channel || "");
       setNotes(draft.notes || "");
       setIntake(draft.intake || {});
@@ -159,6 +167,7 @@ export function NativeBookingScreen() {
       .then((value) => {
         if (!active) return;
         setProfile(value);
+        setLocationId(value.provider.locations.find(item => item.id === requestedLocationId)?.id || value.provider.primaryLocation?.id || value.provider.locations[0]?.id || "");
         const parts = Object.fromEntries(
           new Intl.DateTimeFormat("en", {
             timeZone: value.provider.timezone || "UTC",
@@ -260,6 +269,7 @@ export function NativeBookingScreen() {
           providerId: profile.provider.id,
           serviceId,
           month,
+          locationId: locationId || undefined,
         }),
       ),
     )
@@ -286,7 +296,7 @@ export function NativeBookingScreen() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, profile?.provider.id, serviceId, todayKey, dayStrip]);
+  }, [step, profile?.provider.id, serviceId, todayKey, dayStrip, locationId]);
 
   // Slots load as soon as a day is picked; no separate "find times" step.
   useEffect(() => {
@@ -302,6 +312,7 @@ export function NativeBookingScreen() {
       providerId: profile.provider.id,
       serviceId,
       date: date + "T00:00:00.000Z",
+      locationId: locationId || undefined,
     })
       .then((result) => {
         if (active) {
@@ -325,7 +336,7 @@ export function NativeBookingScreen() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, date, serviceId, profile?.provider.id]);
+  }, [step, date, serviceId, profile?.provider.id, locationId]);
 
   const slotGroups = useMemo(() => {
     const groups: Array<{ label: string; slots: PublicAvailabilitySlot[] }> = [
@@ -335,11 +346,11 @@ export function NativeBookingScreen() {
     ];
     slots.forEach((slot) =>
       groups
-        .find((group) => group.label === slotPeriod(slot.startAt))
+        .find((group) => group.label === slotPeriod(slot.startAt, businessTimezone))
         ?.slots.push(slot),
     );
     return groups.filter((group) => group.slots.length > 0);
-  }, [slots]);
+  }, [slots, businessTimezone]);
 
   // One period shown at a time; follows the first period that has times when the day changes.
   const [period, setPeriod] = useState<string | null>(null);
@@ -378,9 +389,10 @@ export function NativeBookingScreen() {
         serviceId: service.id,
         expectedPriceCents: service.priceCents,
         expectedCurrencyCode: service.currencyCode,
+        expectedPolicyVersion: profile.provider.changePolicy?.version,
         startsAt: selected.startAt,
         assignedStaffId: staffId || undefined,
-        locationId: selected.locationId,
+        locationId: selected.locationId || locationId || undefined,
         channel: channel || service.defaultChannel,
         firstName: session.user.firstName,
         lastName: session.user.lastName,
@@ -398,9 +410,10 @@ export function NativeBookingScreen() {
         requestedDocumentLabels: service.requiredDocumentLabels,
       });
       setCreatedId(result.id);
+      setCheckoutPending((service.priceCents ?? 0) > 0 && !result.payment?.authorizationUrl);
       await clearDraft().catch(() => {});
       if (result.payment?.authorizationUrl) {
-        await openBookingCheckout(result.payment.authorizationUrl);
+        try { await openBookingCheckout(result.payment.authorizationUrl); } catch (error) { setCheckoutPending(true); throw error; }
       } else if (result.payment?.method === "UNAVAILABLE")
         setError(
           result.payment.message ||
@@ -527,12 +540,20 @@ export function NativeBookingScreen() {
             <Text style={styles.doneBody}>
               {service?.name}
               {selected
-                ? ` · ${formatSlotDate(selected.startAt)}, ${formatSlotTime(selected.startAt)}`
+                ? ` · ${formatSlotDate(selected.startAt, businessTimezone)}, ${formatSlotTime(selected.startAt, businessTimezone)}`
                 : ""}
             </Text>
             <Text style={styles.doneCaption}>
               Open it to see payment status and details.
             </Text>
+            {checkoutPending ? <AuthButton label={busy ? "Opening payment…" : "Retry online payment"} disabled={busy} onPress={() => {
+              if (busy) return;
+              setBusy(true); setError(null);
+              void resumeCustomerPayment(createdId).then(async payment => {
+                if (!payment?.authorizationUrl) throw new Error("Payment status changed. Open the appointment for the latest details.");
+                await openBookingCheckout(payment.authorizationUrl); setCheckoutPending(false);
+              }).catch(reason => setError(getFriendlyApiError(reason, "Could not open payment. Your appointment remains reserved."))).finally(() => setBusy(false));
+            }} /> : null}
             <AuthButton
               label="View appointment"
               style={styles.emptyAction}
@@ -625,6 +646,8 @@ export function NativeBookingScreen() {
           </View>
         ) : step === "details" && service ? (
           <View style={styles.form}>
+            {profile && profile.provider.locations.length > 1 ? <Choices label="Business location" value={locationId} onChange={setLocationId} items={profile.provider.locations.map(item => ({ id: item.id, label: item.addressLabel }))} /> : null}
+            <Text style={styles.fieldLabel}>Appointment times use {businessTimezone}</Text>
             {channels.length > 1 ? (
               <View style={styles.fieldBlock}>
                 <Text style={styles.fieldLabel}>Appointment type</Text>
@@ -933,7 +956,7 @@ export function NativeBookingScreen() {
                         accessibilityState={{ selected: isSelected }}
                         accessibilityLabel={new Date(
                           slot.startAt,
-                        ).toLocaleString()}
+                        ).toLocaleString(undefined, { timeZone: businessTimezone })}
                         onPress={() => {
                           setSelected(slot);
                           setStaffId(
@@ -947,7 +970,7 @@ export function NativeBookingScreen() {
                             isSelected ? styles.timeCellTextSelected : null,
                           ]}
                         >
-                          {formatSlotTime(slot.startAt).replace(
+                          {formatSlotTime(slot.startAt, businessTimezone).replace(
                             /\s?(AM|PM)$/i,
                             "",
                           )}
@@ -1009,10 +1032,10 @@ export function NativeBookingScreen() {
                 </View>
                 <View style={styles.selectedBody}>
                   <Text style={styles.selectedTitle}>
-                    {formatSlotTime(selected.startAt)}
+                    {formatSlotTime(selected.startAt, businessTimezone)}
                   </Text>
                   <Text style={styles.selectedMeta}>
-                    {formatSlotDate(selected.startAt)}
+                    {formatSlotDate(selected.startAt, businessTimezone)}
                   </Text>
                 </View>
               </View>
@@ -1031,7 +1054,7 @@ export function NativeBookingScreen() {
                 <Text style={styles.summaryLabel}>When</Text>
                 <Text style={styles.summaryValue} numberOfLines={2}>
                   {selected
-                    ? `${formatSlotDate(selected.startAt)}, ${formatSlotTime(selected.startAt)}`
+                    ? `${formatSlotDate(selected.startAt, businessTimezone)}, ${formatSlotTime(selected.startAt, businessTimezone)}`
                     : "Not chosen"}
                 </Text>
               </View>
@@ -1074,6 +1097,14 @@ export function NativeBookingScreen() {
             <Text style={styles.caption}>
               Online payment opens after the appointment is reserved.
             </Text>
+            {selected && profile?.provider.changePolicy ? (
+              <View style={styles.fieldBlock}>
+                <Text style={styles.fieldLabel}>Your change deadlines</Text>
+                <Text style={styles.caption}>Cancel by {new Date(Date.parse(selected.startAt) - profile.provider.changePolicy.cancellationNoticeHours * 3600000).toLocaleString(undefined, { timeZone: businessTimezone })}</Text>
+                <Text style={styles.caption}>Reschedule by {new Date(Date.parse(selected.startAt) - profile.provider.changePolicy.rescheduleNoticeHours * 3600000).toLocaleString(undefined, { timeZone: businessTimezone })}</Text>
+                <Text style={styles.caption}>{businessTimezone}. After these deadlines, contact the business. A refund is confirmed separately after processor approval.</Text>
+              </View>
+            ) : null}
             <Text style={styles.fieldLabel}>
               Booking and cancellation terms
             </Text>

@@ -73,6 +73,7 @@ function screen(name, overrides = {}) {
       Screen: (props) => React.createElement("Screen", props, props.children),
     },
     "@/src/components/SectionHeader": { SectionHeader: "SectionHeader" },
+    "@/src/components/business/BusinessUI": { Choices: "Choices" },
     "@/src/components/auth/AuthButton": { AuthButton: authButton },
     "@/src/components/auth/AuthField": { AuthField: "Field" },
     "@react-native-community/datetimepicker": { default: "DateTimePicker" },
@@ -200,6 +201,7 @@ function bookingFixture(overrides = {}) {
     displayName: "Fixture",
     timezone: "UTC",
     currencyCode: "NGN",
+    locations: [],
   };
   const service = {
     id: "service",
@@ -304,8 +306,8 @@ test("late availability for a previous day never replaces the newly selected day
   const times = tree.root
     .findAllByType("Pressable")
     .map((node) => node.props.accessibilityLabel);
-  assert.ok(times.includes(new Date(newTime).toLocaleString()));
-  assert.ok(!times.includes(new Date(oldTime).toLocaleString()));
+  assert.ok(times.includes(new Date(newTime).toLocaleString(undefined, { timeZone: "UTC" })));
+  assert.ok(!times.includes(new Date(oldTime).toLocaleString(undefined, { timeZone: "UTC" })));
   await act(async () => {
     tree.unmount();
   });
@@ -678,4 +680,15 @@ test("native booking displays the service USD price even when the business profi
   const text = labels(tree.root).join(" ");
   assert.match(text, /USD/); assert.match(text, /45\.50/); assert.doesNotMatch(text, /NGN/);
   await act(async () => { tree.unmount(); });
+});
+
+
+test('customer actions respect separate server deadlines and never offer changes without a reviewed policy', () => {
+  const { canCancelBooking, canRescheduleBooking } = utility('booking-display');
+  const later = new Date(Date.now() + 3600000).toISOString(), earlier = new Date(Date.now() - 3600000).toISOString();
+  const booking = { status: 'CONFIRMED', startsAt: later, customerPolicy: { changeDeadline: earlier, cancellationDeadline: earlier, rescheduleDeadline: later, canCancel: false, canReschedule: true } };
+  assert.equal(canCancelBooking(booking), false); assert.equal(canRescheduleBooking(booking), true);
+  assert.equal(canCancelBooking({ ...booking, customerPolicy: undefined }), false);
+  assert.equal(canRescheduleBooking({ ...booking, customerPolicy: { ...booking.customerPolicy, requiresReview: true } }), false);
+  for (const status of ['CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']) assert.equal(canRescheduleBooking({ ...booking, status }), false);
 });

@@ -400,16 +400,16 @@ function findButton(tree, label) {
 }
 async function field(tree, label, value) { await act(async () => tree.root.findByProps({ accessibilityLabel: label }).props.onChangeText(value)); }
 const service = { id: 's', name: 'Facial', description: '', priceCents: 7800, currencyCode: 'USD', durationMinutes: 60, isActive: true, requiresApproval: false, imageUrl: 'https://example.com/photo.jpg', defaultChannel: 'IN_PERSON', availableChannels: ['IN_PERSON'], bufferBeforeMinutes: 0, bufferAfterMinutes: 0, bookingInstructions: '' };
-test('service editor submits exact selected currency and minor units once while saving', async () => {
+test('service editor preserves the original currency and submits exact minor units once while saving', async () => {
   const writes = []; let resolve, closed = 0;
   const pending = new Promise(r => { resolve = r; });
   const f = fixture({ businessRequest: (...args) => { writes.push(args); return pending; } });
   const { ServiceEditor } = f.load('src/components/business/ServiceEditor.tsx'); let tree;
   await act(async () => { tree = create(React.createElement(ServiceEditor, { service, categoryId: 'cat', categories: [{ id: 'cat', name: 'Beauty', services: [service] }], onSaved: async () => {}, onClose: () => closed++ })); });
-  await field(tree, 'Price', '12.99'); await act(async () => findButton(tree, 'NGN').props.onPress());
+  await field(tree, 'Price', '12.99'); assert.equal(tree.root.findAllByType('Pressable').filter(item => item.findAllByType('Text').some(t => t.children.join('') === 'NGN')).length, 0);
   const save = findButton(tree, 'Save changes').props.onPress;
   await act(async () => { save(); save(); });
-  assert.equal(writes.length, 1); assert.equal(writes[0][3].priceCents, 1299); assert.equal(writes[0][3].currencyCode, 'NGN'); assert.equal(writes[0][1], 'org');
+  assert.equal(writes.length, 1); assert.equal(writes[0][3].priceCents, 1299); assert.equal(writes[0][3].currencyCode, 'USD'); assert.equal(writes[0][1], 'org');
   await act(async () => resolve({})); assert.equal(closed, 1); await act(async () => tree.unmount());
 });
 test('invalid prices remain editable and never reach the backend', async () => {
@@ -452,3 +452,32 @@ test('booking editor uses backend slots and submits the reviewed service price, 
   await act(async () => tree.unmount());
 });
 
+
+
+test('booking policies save separate cancellation and rescheduling notice hours without changing money', async t => {
+  const writes = [];
+  const f = fixture({ businessRequest: async (...args) => { writes.push(args); return {}; } });
+  const { BookingPolicyEditor } = f.load('src/components/business/BookingPolicyEditor.tsx');
+  let tree;
+  await act(async () => { tree = create(React.createElement(BookingPolicyEditor, { settings: { profile: { cancellationWindowHours: 24, rescheduleWindowHours: 6, minAdvanceBookingHours: 1, maxAdvanceBookingDays: 90 } }, onSaved: async () => {}, onClose() {} })); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  await field(tree, 'Cancellation notice (hours before appointment)', '48');
+  await field(tree, 'Rescheduling notice (hours before appointment)', '12');
+  await act(async () => findButton(tree, 'Save policies').props.onPress());
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][0], 'profile'); assert.equal(writes[0][1], 'org');
+  assert.deepEqual(writes[0][3], { cancellationWindowHours: 48, rescheduleWindowHours: 12, minAdvanceBookingHours: 1, maxAdvanceBookingDays: 90, cancellationPolicy: '' });
+});
+
+test('invalid notice periods and read-only staff cannot save booking policy settings', async t => {
+  for (const readOnly of [false, true]) {
+    let writes = 0;
+    const f = fixture({ businessRequest: async () => { writes++; } }, { canManage: !readOnly });
+    const { BookingPolicyEditor } = f.load('src/components/business/BookingPolicyEditor.tsx'); let tree;
+    await act(async () => { tree = create(React.createElement(BookingPolicyEditor, { settings: { profile: {} }, onSaved: async () => {}, onClose() {} })); });
+    if (!readOnly) await field(tree, 'Cancellation notice (hours before appointment)', '0.5');
+    await act(async () => findButton(tree, 'Save policies').props.onPress());
+    assert.equal(writes, 0);
+    await act(async () => tree.unmount());
+  }
+});
