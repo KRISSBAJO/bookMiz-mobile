@@ -54,6 +54,7 @@ function screen(name, overrides = {}) {
   Object.assign(native, overrides.__native);
   const authButton = (props) => React.createElement("Button", props);
   const deps = {
+    "../lib/inbox-presentation": utility("inbox-presentation"),
     react: React,
     "react/jsx-runtime": require("react/jsx-runtime"),
     "react-native": native,
@@ -691,4 +692,23 @@ test('customer actions respect separate server deadlines and never offer changes
   assert.equal(canCancelBooking({ ...booking, customerPolicy: undefined }), false);
   assert.equal(canRescheduleBooking({ ...booking, customerPolicy: { ...booking.customerPolicy, requiresReview: true } }), false);
   for (const status of ['CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']) assert.equal(canRescheduleBooking({ ...booking, status }), false);
+});
+
+
+test("inbox filters ignore an older response and repeated taps mark an unread update only once", async () => {
+  const requests=[],read=deferred();let marks=0;
+  const Inbox=screen('InboxScreen',{'@/src/components/Screen':{Screen:props=>React.createElement('Screen',props,props.heroContent,props.children)},'@/src/lib/api/notifications':{
+    listInboxNotifications: options=>{const next=deferred();requests.push({options,...next});return next.promise;},
+    markInboxNotificationRead:async()=>{marks++;await read.promise;},markAllInboxNotificationsRead:async()=>{},
+  }});
+  let tree;await act(async()=>{tree=create(React.createElement(Inbox));});
+  await act(async()=>tree.root.findAllByType('Pressable').find(node=>node.props.accessibilityLabel==='Show payments updates').props.onPress());
+  assert.equal(requests[1].options.category,'PAYMENTS');
+  const old={id:'old',eventKey:'booking.confirmed.customer',title:'Old booking',body:'Old body',createdAt:new Date().toISOString(),readAt:null};
+  await act(async()=>requests[0].resolve({items:[old],unreadCount:42}));assert(!labels(tree.root).includes('Old booking'));
+  const paid={...old,id:'payment',eventKey:'booking.refund',title:'Refund confirmed',body:'Your refund is confirmed.'};
+  await act(async()=>requests[1].resolve({items:[paid],unreadCount:42}));
+  const row=tree.root.findAllByType('Pressable').find(node=>node.props.accessibilityLabel==='Refund confirmed, unread');
+  await act(async()=>{row.props.onPress();row.props.onPress();});assert.equal(marks,1);assert(labels(tree.root).includes('41 unread updates'));
+  await act(async()=>read.resolve());await act(async()=>tree.unmount());
 });
