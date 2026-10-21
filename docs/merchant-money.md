@@ -1,6 +1,6 @@
 # Merchant money preview
 
-Status: implementation complete for the money routes described below; mobile typecheck and all 66 mobile tests pass. Native acceptance and preview deployment are pending. No new store binary or public release has been created for this phase.
+Status: the matching backend and Android/iOS preview OTA are deployed. Mobile typecheck and all 66 mobile tests pass. Installed-device acceptance remains pending; see `releases/2026-10-20-merchant-preview.md`. No new store binary or public release has been created for this phase.
 
 Owners/providers open Business → Money. Staff/managers cannot load it directly. The five primary navigation tabs stay unchanged.
 
