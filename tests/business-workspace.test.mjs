@@ -29,12 +29,12 @@ function fixture(api = {}, overrides = {}, options = {}) {
     if (cache.has(filename)) return cache.get(filename);
     const result = {}; cache.set(filename, result);
     const code = ts.transpileModule(readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-    new Function('require', 'exports', code)(name => {
+    new Function('require', 'exports', 'Date', code)(name => {
       if (mocks[name]) return mocks[name];
       if (name.endsWith('.ttf')) return 'font';
       if (name.endsWith('.png')) return 'illustration';
       return load(name.startsWith('@/') ? name.slice(2) : path.resolve(path.dirname(filename), name));
-    }, result);
+    }, result, options.now ? class extends Date { constructor(...args) { super(...(args.length ? args : [options.now])); } } : Date);
     return result;
   }
   return { load, business, routes, params };
@@ -57,13 +57,10 @@ test('calendar places original booking amounts in accessible blocks and opens sc
   const end = policy.businessDateTimeToIso(day, '12:00', 'America/Chicago');
   const records = [{ id: 'zero', customerName: 'Alex', serviceName: 'Original booking', startsAt: start, endsAt: end, status: 'CONFIRMED', paymentStatus: 'UNPAID', totalPriceCents: 0, currencyCode: 'USD', assignedStaffId: null, channel: 'IN_PERSON' }, { id: 'ngn', customerName: 'Taylor', serviceName: 'Second service', startsAt: start, endsAt: end, status: 'COMPLETED', paymentStatus: 'PAID', totalPriceCents: 1299, currencyCode: 'NGN', assignedStaffId: 'staff', channel: 'IN_PERSON' }];
   const f = fixture({ getMerchantBookings: async () => ({ bookings: records }), getMerchantSettings: async () => ({ staffMembers: [] }), getMerchantBootstrap: async () => ({ stats: { openRequests: 2 } }) });
-  const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
-  await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
+  const { MerchantCalendarScreen } = f.load('src/screens/business/MerchantCalendarScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantCalendarScreen)); });
   t.after(async () => { await act(async () => tree.unmount()); });
-  const output = JSON.stringify(tree.toJSON()); assert.match(output, /booking total USD\s0.00/); assert.match(output, /booking total NGN\s12.99/);
-  await act(async () => findButton(tree, 'Hours & time off').props.onPress());
-  await act(async () => findButton(tree, 'Add service').props.onPress());
-  assert.deepEqual(f.routes, ['/business/manage?section=availability', '/business/manage?section=services&action=add-service']);
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /booking total USD\s0.00/); assert.match(output, /booking total NGN\s12.99/); assert.doesNotMatch(output, /[\u00c3\u00c2]/);
   const event = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel?.includes('Alex, Original booking'));
   await act(async () => event.props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 1);
   await act(async () => findButton(tree, 'Close').props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 0);
@@ -71,10 +68,40 @@ test('calendar places original booking amounts in accessible blocks and opens sc
 
 test('staff schedule keeps appointments available when auxiliary team loading fails and offers no creation', async t => {
   const f = fixture({ getMerchantBookings: async () => ({ bookings: [] }), getMerchantSettings: async () => { throw new Error('Offline'); }, getMerchantBootstrap: async () => ({ stats: {} }) }, { canManage: false, businesses: [{ id: 'org', role: 'STAFF' }] });
+  const { MerchantCalendarScreen } = f.load('src/screens/business/MerchantCalendarScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantCalendarScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Team and setup information could not load/); assert.doesNotMatch(output, /New appointment|Add service/);
+});
+
+test('Today is a briefing, not another calendar, and preserves original amounts and pending status', async t => {
+  const visit = (id, hour, status, currencyCode = 'USD', totalPriceCents = 0) => ({ id, customerName: id, serviceName: 'Haircut', startsAt: `2026-10-21T${hour}:00:00Z`, endsAt: `2026-10-21T${hour}:30:00Z`, status, currencyCode, totalPriceCents, assignedStaffId: null, paymentStatus: 'UNPAID', channel: 'IN_PERSON' });
+  const f = fixture({ getMerchantBookings: async () => ({ bookings: [visit('Pending client', '13', 'PENDING'), visit('Later client', '14', 'CONFIRMED'), visit('Done client', '11', 'COMPLETED', 'NGN', 1299), visit('Overdue client', '10', 'CONFIRMED')] }), getMerchantBootstrap: async () => ({ stats: { openRequests: 2 } }) }, {}, { now: '2026-10-21T12:00:00Z' });
   const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
   await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
   t.after(async () => { await act(async () => tree.unmount()); });
-  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Team and setup information could not load/); assert.doesNotMatch(output, /New appointment|Add service/);
+  let output = JSON.stringify(tree.toJSON());
+  assert.match(output, /UP NEXT/); assert.match(output, /Pending client/); assert.match(output, /Awaiting confirmation/); assert.match(output, /Past time, still open/); assert.match(output, /Upcoming/); assert.match(output, /Completed/);
+  assert.doesNotMatch(output, /Next week|Previous week|Schedule filters|Choose date|Done client/);
+  await act(async () => findButton(tree, 'Show all').props.onPress());
+  output = JSON.stringify(tree.toJSON()); assert.match(output, /booking total NGN\s12.99/); assert.match(output, /booking total USD\s0.00/);
+  await act(async () => findButton(tree, 'Open calendar').props.onPress());
+  await act(async () => findButton(tree, 'Hours & time off').props.onPress());
+  await act(async () => findButton(tree, 'Add service').props.onPress());
+  assert.deepEqual(f.routes, ['/business/calendar', '/business/manage?section=availability', '/business/manage?section=services&action=add-service']);
+  const hero = tree.root.findAllByType('Pressable').find(x => x.props.accessibilityLabel?.startsWith('View next appointment'));
+  await act(async () => hero.props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 1);
+  await act(async () => findButton(tree, 'Close').props.onPress()); assert.equal(tree.root.findAllByType('Modal').length, 0);
+});
+
+test('Today keeps failed schedule and request reads honest and staff cannot create appointments', async t => {
+  const f = fixture({ getMerchantBookings: async () => { throw Error('Schedule offline'); }, getMerchantBootstrap: async () => { throw Error('Requests offline'); } }, { canManage: false }, { now: '2026-10-21T12:00:00Z', fontScale: 1.8, width: 320 });
+  const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Schedule offline/); assert.match(output, /Service requests could not load/);
+  assert.doesNotMatch(output, /tasks are clear|No upcoming appointments|New appointment|Add service/);
+  assert.equal(tree.root.findAllByType('Image').length, 0);
 });
 
 test('schedule layout separates overlapping blocks, clips overnight visits and respects DST business dates', () => {
