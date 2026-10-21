@@ -79,3 +79,13 @@ Published October 21, 2026 to the existing preview channel:
 - android: update `01a15e92-f39d-7f58-b413-4da3bc179dbc`, group `3bec1490-da38-4924-8a4f-146bba03ac2a`, unchanged installed runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
 
 Both runtime-specific manifests, Hermes bundles and the new default cover asset were downloaded and verified by SHA-256. Evidence: `E:/BookMiz-merchant-testing/today-cover-delivery-verification.json`. All 78 tests and type checking passed. This is an OTA preview update; no native build, backend change or public release was triggered. Physical-device visual acceptance remains pending.
+
+## Requests and Messages separation
+
+User requested distinct layouts for these two tabs. Requests is now a service-brief queue with New/In conversation/Accepted counts, queue filters, customer details, original-currency budget and preferred date. Pressing a brief opens the existing reviewed unlock/quote/decline flow; viewing a request does not charge or accept it.
+
+Messages has its own screen and flat conversation rows: customer initials, name, service context, latest message, provider “You:” prefix and activity time, with All/Open/Closed filters. Threads are ordered by latest recorded message activity. No unread counters or presence indicators are invented. Managers open chat directly; staff retain preview/linked-request access and cannot gain reply permissions. Closed history remains accessible. Request and conversation deep links remain scoped to the selected business; chat links are consumed on dismissal. Alerts can return to Messages.
+
+Source `495409c`, preview equivalent `441b0e0`. Type checking and all 83 mobile tests pass. Both platform exports succeed and use deployed HTTPS BookMiz APIs. Native visual review remains pending. Publication status is recorded separately once connectivity permits it.
+
+Existing mobile availability is under Business → Availability, with working hours, breaks and time off scoped to staff/location where applicable. Full team/location management, business profile/cover editing and advanced settings remain future mobile work; this UI separation does not claim to implement them.
