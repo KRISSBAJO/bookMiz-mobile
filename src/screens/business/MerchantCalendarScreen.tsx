@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../components/Screen';
 import { useBusiness } from '../../store/business-context';
 import { businessDate, shiftBusinessDate } from '../../lib/business-policy';
@@ -9,7 +9,7 @@ import { Action, Choices, Empty, Field, Notice, ui, useBusinessData } from '../.
 import { BookingEditor } from '../../components/business/BookingEditor';
 import { BookingCard } from '../../components/business/BookingCard';
 export function MerchantCalendarScreen() {
-  const b = useBusiness(), { booking: bookingId } = useLocalSearchParams<{ booking?: string }>();
+  const b = useBusiness(), router = useRouter(), { booking: bookingId } = useLocalSearchParams<{ booking?: string }>();
   const [day, setDay] = useState(businessDate(new Date(), b.workspace.timezone)), [search, setSearch] = useState(''), [filter, setFilter] = useState('ALL'), [staff, setStaff] = useState(''), [create, setCreate] = useState(false);
   const state = useBusinessData(useCallback(() => getMerchantBookings(b.organizationId, shiftBusinessDate(day, -1), shiftBusinessDate(day, 7)), [b.organizationId, day]));
   const week = Array.from({ length: 7 }, (_, i) => shiftBusinessDate(day, i));
@@ -33,7 +33,7 @@ export function MerchantCalendarScreen() {
     {staffItems.length ? <Choices label="Team" items={[{ id: '', label: 'Everyone' }, ...staffItems]} value={staff} onChange={setStaff} /> : null}
     {linkError ? <Notice text={linkError} /> : null}
     {state.error ? <Notice text={state.error} onRetry={() => void state.refresh()} /> : null}
-    {state.loading && !state.data ? <ActivityIndicator /> : bookings.length ? bookings.map(item => <BookingCard key={item.id} booking={item} initialOpen={item.id === bookingId} onRefresh={state.refresh} />) : !state.error ? <Empty title="No appointments here" text="Choose another day or adjust the filters." /> : null}
+    {state.loading && !state.data ? <ActivityIndicator /> : bookings.length ? bookings.map(item => <BookingCard key={item.id} booking={item} initialOpen={item.id === bookingId} onDismiss={item.id === bookingId ? () => router.setParams({ booking: undefined }) : undefined} onRefresh={state.refresh} />) : !state.error ? <Empty title="No appointments here" text="Choose another day or adjust the filters." /> : null}
     {create ? <BookingEditor onClose={() => setCreate(false)} onSaved={state.refresh} /> : null}
   </Screen>;
 }
