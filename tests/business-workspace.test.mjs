@@ -22,7 +22,8 @@ function fixture(api = {}, overrides = {}, options = {}) {
     const canonical = filename.replaceAll('\\', '/');
     if (canonical.endsWith('business-context.tsx')) return { useBusiness: () => business, BusinessSelector: 'BusinessSelector' };
     if (canonical.endsWith('session-context.tsx')) return { useSession: () => ({ user: { id: 'user' } }) };
-    if (canonical.endsWith('api/business.ts') || canonical.endsWith('api/business-money.ts')) return api;
+    if (canonical.endsWith('api/client.ts')) return { requestJson: api.requestJson };
+    if ((canonical.endsWith('api/business.ts') && !options.realBusinessApi) || canonical.endsWith('api/business-money.ts')) return { getMerchantCover: async () => ({ url: null }), ...api };
     if (canonical.endsWith('/drafts.ts')) return { readDraft: api.readDraft ?? (async () => null), writeDraft: api.writeDraft ?? (async () => {}) };
     if (canonical.endsWith('components/Screen.tsx')) return { Screen: ({ children, action, ...props }) => React.createElement('Screen', props, action, children) };
     if (canonical.endsWith('api/error-display.ts')) return { getFriendlyApiError: (e, fallback) => e?.message || fallback };
@@ -101,7 +102,32 @@ test('Today keeps failed schedule and request reads honest and staff cannot crea
   t.after(async () => { await act(async () => tree.unmount()); });
   const output = JSON.stringify(tree.toJSON()); assert.match(output, /Schedule offline/); assert.match(output, /Service requests could not load/);
   assert.doesNotMatch(output, /tasks are clear|No upcoming appointments|New appointment|Add service/);
-  assert.equal(tree.root.findAllByType('Image').length, 0);
+  assert.equal(tree.root.findAllByType('Image').length, 1); // the decorative cover remains visible with large text
+});
+
+test('business cover uses a saved image, falls back after download failure and resets for a new URL', async t => {
+  const f = fixture(); const { BusinessCover, businessCoverUrl } = f.load('src/components/business/BusinessCover.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(BusinessCover, { url: 'https://images.example.test/cover.jpg', name: 'Test Studio' })); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  assert.equal(tree.root.findByType('Image').props.source.uri, 'https://images.example.test/cover.jpg');
+  await act(async () => tree.root.findByType('Image').props.onError());
+  assert.equal(tree.root.findByType('Image').props.source, 'illustration');
+  await act(async () => tree.update(React.createElement(BusinessCover, { url: 'https://images.example.test/new.jpg', name: 'Test Studio' })));
+  assert.equal(tree.root.findByType('Image').props.source.uri, 'https://images.example.test/new.jpg');
+  assert.equal(businessCoverUrl('javascript:alert(1)'), null); assert.equal(businessCoverUrl('//unknown.test/a'), null); assert.equal(businessCoverUrl('https://user:pass@unknown.test/a'), null);
+  assert.equal(businessCoverUrl('/barber.png'), 'https://www.bookmiz.com/barber.png');
+});
+
+test('cover data prefers the published cover, then booking banner, with a default for unpublished or offline businesses', async () => {
+  for (const scenario of ['cover', 'banner', 'offline']) {
+    const f = fixture({ requestJson: async url => {
+      if (scenario === 'offline') throw Error('Offline');
+      if (url.includes('/marketplace/')) { if (scenario === 'banner') throw Error('Not published'); return { provider: { coverImageUrl: 'https://images.example.test/cover.jpg' } }; }
+      return { bookingPage: { bannerUrl: 'https://images.example.test/banner.jpg' } };
+    } }, {}, { realBusinessApi: true });
+    const { getMerchantCover } = f.load('src/lib/api/business.ts');
+    assert.equal((await getMerchantCover('org', 'my-studio')).url, scenario === 'cover' ? 'https://images.example.test/cover.jpg' : scenario === 'banner' ? 'https://images.example.test/banner.jpg' : null);
+  }
 });
 
 test('schedule layout separates overlapping blocks, clips overnight visits and respects DST business dates', () => {
