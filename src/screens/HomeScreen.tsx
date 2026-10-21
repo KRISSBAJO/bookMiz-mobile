@@ -1,3 +1,5 @@
+import {UpcomingAppointmentCard} from '../components/UpcomingAppointmentCard';
+import {upcomingAppointments} from '../lib/appointment-feed';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -73,37 +75,6 @@ function greetingFor(date: Date) {
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
-}
-
-function formatRelativeDay(value: string) {
-  const start = new Date(value);
-  const now = new Date();
-  const dayMs = 86_400_000;
-  const startDay = new Date(
-    start.getFullYear(),
-    start.getMonth(),
-    start.getDate(),
-  ).getTime();
-  const today = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime();
-  const diff = Math.round((startDay - today) / dayMs);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff > 1 && diff < 7) return `In ${diff} days`;
-  return start.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function formatRequestStatus(status: CustomerQuoteRequest["status"]) {
@@ -217,20 +188,8 @@ export function HomeScreen() {
       : session.profile.city
     : undefined;
 
-  const nextBooking = useMemo(() => {
-    const now = Date.now();
-    return bookings
-      .filter(
-        (booking) =>
-          booking.status !== "CANCELLED" &&
-          booking.status !== "COMPLETED" &&
-          new Date(booking.endsAt).getTime() >= now,
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
-      )[0];
-  }, [bookings]);
+  const upcomingBookings = useMemo(() => upcomingAppointments(bookings), [bookings]);
+  const nextBooking = upcomingBookings[0];
 
   const activeRequests = useMemo(
     () =>
@@ -354,66 +313,7 @@ export function HomeScreen() {
             />
           </View>
 
-          {nextBooking ? (
-            <Pressable
-              onPress={() =>
-                router.push(`/appointments/${nextBooking.id}` as never)
-              }
-              accessibilityRole="button"
-              style={styles.nextCard}
-            >
-              <View style={styles.nextHeader}>
-                <Text style={styles.nextEyebrow}>Next appointment</Text>
-                <Text style={styles.nextWhen}>
-                  {formatRelativeDay(nextBooking.startsAt)}
-                </Text>
-              </View>
-              <View style={styles.nextRow}>
-                <View style={styles.nextDate}>
-                  <Text style={styles.nextDateDay}>
-                    {new Date(nextBooking.startsAt).toLocaleDateString(
-                      undefined,
-                      { weekday: "short" },
-                    )}
-                  </Text>
-                  <Text style={styles.nextDateNum}>
-                    {new Date(nextBooking.startsAt).getDate()}
-                  </Text>
-                </View>
-                <View style={styles.nextBody}>
-                  <Text style={styles.nextTitle} numberOfLines={1}>
-                    {nextBooking.service.name}
-                  </Text>
-                  <Text style={styles.nextMeta} numberOfLines={1}>
-                    {nextBooking.provider.displayName} ·{" "}
-                    {formatTime(nextBooking.startsAt)}
-                    {nextBooking.assignedStaff
-                      ? ` · ${nextBooking.assignedStaff.displayName ?? nextBooking.assignedStaff.firstName}`
-                      : ""}
-                  </Text>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color="#ffffff" />
-              </View>
-              <View style={styles.nextActions}>
-                <Pressable
-                  onPress={() =>
-                    router.push(`/appointments/${nextBooking.id}` as never)
-                  }
-                  style={styles.nextPrimary}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.nextPrimaryText}>View details</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => router.push("/appointments" as never)}
-                  style={styles.nextSecondary}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.nextSecondaryText}>All bookings</Text>
-                </Pressable>
-              </View>
-            </Pressable>
-          ) : null}
+          {nextBooking ? <UpcomingAppointmentCard booking={nextBooking} count={upcomingBookings.length} onDetails={() => router.push(`/appointments/${nextBooking.id}` as never)} onViewAll={() => router.push('/appointments' as never)} /> : null}
 
           <View style={styles.section}>
           <Text style={styles.quickTitle}>Quick actions</Text>
@@ -764,100 +664,6 @@ const styles = StyleSheet.create({
     color: tokens.colors.ink,
     fontSize: 15,
     fontFamily: tokens.font.regular,
-  },
-  nextCard: {
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.colors.inkDeep,
-    padding: 18,
-    gap: 12,
-  },
-  nextHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  nextEyebrow: {
-    color: tokens.colors.brand,
-    fontSize: 12,
-    fontFamily: tokens.font.bold,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  nextWhen: {
-    color: tokens.colors.onNavyMuted,
-    fontSize: 12,
-    fontFamily: tokens.font.semibold,
-  },
-  nextRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  nextDate: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: tokens.colors.navySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nextDateDay: {
-    color: tokens.colors.onNavyMuted,
-    fontSize: 10,
-    fontFamily: tokens.font.bold,
-    textTransform: "uppercase",
-  },
-  nextDateNum: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontFamily: tokens.font.display,
-    lineHeight: 22,
-  },
-  nextBody: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  nextTitle: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontFamily: tokens.font.bold,
-  },
-  nextMeta: {
-    color: tokens.colors.onNavyMuted,
-    fontSize: 13,
-    fontFamily: tokens.font.regular,
-  },
-  nextActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  nextPrimary: {
-    flex: 1,
-    height: 40,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nextPrimaryText: {
-    color: tokens.colors.inkDeep,
-    fontSize: 14,
-    fontFamily: tokens.font.bold,
-  },
-  nextSecondary: {
-    flex: 1,
-    height: 40,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nextSecondaryText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontFamily: tokens.font.semibold,
   },
   actionGrid: { gap: 12 },
   actionRow: {
