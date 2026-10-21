@@ -13,6 +13,7 @@ export function BookingCard({ booking: b, onRefresh, onDismiss, initialOpen = fa
   const [open, setOpen] = useState(initialOpen), [reschedule, setReschedule] = useState(false), [nextStatus, setNext] = useState(''), [reason, setReason] = useState('');
   useFocusEffect(useCallback(() => { if (initialOpen) setOpen(true); }, [initialOpen]));
   const time = new Date(b.startsAt).toLocaleTimeString(undefined, { timeZone: business.workspace.timezone, hour: 'numeric', minute: '2-digit' });
+  const exactTime = (value: string) => new Date(value).toLocaleTimeString(undefined, { timeZone: business.workspace.timezone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const actionNames: Record<string, string> = { CONFIRMED: 'Confirm booking', CHECKED_IN: 'Check in', COMPLETED: 'Complete appointment', NO_SHOW: 'Mark no-show', CANCELLED: 'Cancel appointment' };
   async function change() { await mutation.run(async () => { await businessRequest(`bookings/${b.id}/${nextStatus === 'CANCELLED' ? 'cancel' : 'status'}`, business.organizationId, 'PATCH', { ...(nextStatus === 'CANCELLED' ? {} : { status: nextStatus }), reason: reason.trim() || undefined }); }, async () => { setNext(''); setOpen(false); onDismiss?.(); await onRefresh(); }); }
   return <>
