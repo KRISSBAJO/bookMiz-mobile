@@ -98,3 +98,14 @@ Published October 21, 2026 after Windows connectivity was restored. Final source
 - android: update `01a15ea7-b664-7074-bcce-0c652d6f2230`, group `d7357516-674f-4b88-a315-5d67dd12eb55`, unchanged installed runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
 
 Both runtime-specific manifests, bundles and the existing default cover were downloaded and their SHA-256 hashes verified. Evidence: `E:/BookMiz-merchant-testing/request-messages-delivery-verification.json`. Type checking and all 83 tests pass. No backend change, native build or public store release was triggered. Physical-device visual acceptance remains pending.
+
+## Availability generation release — October 21, 2026
+
+Mobile source `0e8d96d`, preview equivalent `e09bf7b`. Added Business → Availability → Generate slots with preview/review/confirm, manual service slot creation, service selection and capacity. Failed/stale confirmation returns to a fresh preview. Read-only staff have no creation controls.
+
+- Backend scheduling revision `c28f768f82fff9bd40acd9d9552eefad6c4c8efa` is deployed and healthy. Authenticated smoke checks confirm preview hashes, rejection of missing/stale review, customer denial and sandbox gateways. No live availability was mutated by smoke checks.
+- Website revision `771ec4b` deployed successfully in AWS Amplify job `34`.
+- iOS update `01a15ee2-ae30-72c6-9864-7d0580b50c8d`, group `f3673dc4-203d-4796-a81d-88bcaa60b60c`; installed runtime unchanged.
+- Android update `01a15ee2-ae30-7cc5-80d1-3aad11801b88`, group `87dc5eb7-af0f-40f9-9fcf-70f1ad3e8974`; installed runtime unchanged.
+
+Manifest selection, both bundles and cover asset downloaded and SHA-256 verified. Evidence `E:/BookMiz-merchant-testing/scheduling-delivery-verification.json`. All 85 mobile tests pass; web build and 13 tests pass (lint: zero errors, existing warnings). Backend regression run: 95 passed, four environment-dependent checks skipped. Additional isolated PostgreSQL tests exercise competing booking/status changes and six generator confirmations. Native device visual acceptance remains pending. No native build or public store release was triggered. Invoice/receipt work is separate and remains unreleased.
