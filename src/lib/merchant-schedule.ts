@@ -14,7 +14,7 @@ export function scheduleLayout(bookings: MerchantBooking[], day: string, timezon
       if (end === 0 && businessDate(booking.startsAt, timezone) < day) return null;
       // During a repeated DST hour the wall clock may go backwards. Keep a visible,
       // tappable block; exact offset-aware times remain in the appointment details.
-      return { booking, start, end: Math.min(1440, Math.max(start + 30, end)), column: 0, columns: 1 };
+      return { booking, start, repeatedHour: end < start, end: Math.min(1440, Math.max(start + 1, end)), column: 0, columns: 1 };
     }).filter((b): b is NonNullable<typeof b> => !!b && b.start < b.end)
     .sort((a, b) => a.start - b.start || a.end - b.end || a.booking.id.localeCompare(b.booking.id));
   let group: typeof items = [], groupEnd = -1;

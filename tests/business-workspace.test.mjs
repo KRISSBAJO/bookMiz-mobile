@@ -93,6 +93,33 @@ test('schedule layout separates overlapping blocks, clips overnight visits and r
   assert.equal(records[0].startsAt, '2026-10-21T14:00:00Z');
 });
 
+test('calendar creation carries the selected date and staff into the reviewed booking editor', async t => {
+  let writes = 0;
+  const f = fixture({ getMerchantBookings: async () => ({ bookings: [] }), getMerchantSettings: async () => ({ staffMembers: [{ id: 'staff', displayName: 'Jamie', status: 'ACTIVE', isBookable: true }], locations: [] }), getMerchantBootstrap: async () => ({ stats: {} }), getMerchantServices: async () => ({ categories: [] }), businessRequest: async (_, __, method) => { if (method) writes++; return { customers: [] }; } });
+  const { MerchantCalendarScreen } = f.load('src/screens/business/MerchantCalendarScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantCalendarScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const byLabel = label => tree.root.findAllByType('Pressable').find(p => p.props.accessibilityLabel === label);
+  await act(async () => byLabel('Next week').props.onPress());
+  await act(async () => byLabel('Jamie').props.onPress());
+  await act(async () => byLabel('New appointment').props.onPress());
+  const { DateField, Choices } = f.load('src/components/business/BusinessUI.tsx');
+  assert.equal(tree.root.findAllByType(DateField).find(x => x.props.label === 'Appointment date').props.value, policy.shiftBusinessDate(policy.businessDate(new Date(), 'America/Chicago'), 7));
+  assert.equal(tree.root.findAllByType(Choices).find(x => x.props.label === 'Team member').props.value, 'staff');
+  assert.equal(writes, 0);
+});
+
+test('service menu opens compact details without granting staff edit or money access', async t => {
+  const f = fixture({ getMerchantServices: async () => ({ categories: [{ id: 'cat', name: 'Hair', services: [{ id: 's', name: 'Cut', durationMinutes: 30, priceCents: 1299, currencyCode: 'NGN', isActive: true }] }] }), getMerchantSettings: async () => ({ workingHours: [], staffMembers: [], locations: [], timeOffs: [] }) }, { canManage: false, businesses: [{ id: 'org', role: 'STAFF' }] });
+  const { MerchantManageScreen } = f.load('src/screens/business/MerchantManageScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantManageScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const row = tree.root.findAllByType('Pressable').find(p => p.props.accessibilityLabel?.startsWith('Cut,'));
+  await act(async () => row.props.onPress());
+  assert.equal(tree.root.findAllByType('Modal').length, 1);
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /NGN/); assert.match(output, /12.99/); assert.doesNotMatch(output, /Edit service|Archive service|Open money workspace/);
+});
+
 test('add-service shortcut opens the service editor once and cannot grant staff write access', async () => {
   for (const canManage of [true, false]) {
     const f = fixture({ getMerchantServices: async () => ({ categories: [] }), getMerchantSettings: async () => ({ workingHours: [], staffMembers: [], locations: [], timeOffs: [] }) }, { canManage }, { params: { section: 'services', action: 'add-service' } });
