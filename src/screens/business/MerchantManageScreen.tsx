@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../components/Screen';
@@ -10,10 +10,14 @@ import { Action, Badge, Choices, Editor, Empty, Field, Notice, ui, useBusinessDa
 import { ServiceEditor } from '../../components/business/ServiceEditor';
 import { AvailabilityEditor, weekdays } from '../../components/business/AvailabilityEditor';
 export function MerchantManageScreen() {
-  const b = useBusiness(), session = useSession(), router = useRouter(), params = useLocalSearchParams<{ section?: string }>();
+  const b = useBusiness(), session = useSession(), router = useRouter(), params = useLocalSearchParams<{ section?: string; action?: string }>();
   const [section, setSection] = useState(params.section || 'services'), [search, setSearch] = useState(''), [editing, setEditing] = useState<{ service?: MerchantService; categoryId?: string } | null>(null), [availability, setAvailability] = useState<{ rule?: Rule; timeOff?: boolean } | null>(null), [remove, setRemove] = useState<{ path: string; title: string } | null>(null);
   const state = useBusinessData(useCallback(async () => { const [catalog, settings] = await Promise.all([getMerchantServices(b.organizationId), getMerchantSettings(b.organizationId)]); return { catalog, settings }; }, [b.organizationId]));
   const mutation = useBusinessMutation();
+  useEffect(() => {
+    if (params.section && ['services', 'availability', 'team'].includes(params.section)) setSection(params.section);
+    if (params.action === 'add-service' && b.canManage) { setSection('services'); setEditing({}); router.setParams({ action: undefined }); }
+  }, [params.section, params.action, b.canManage, router]);
   const services = state.data?.catalog.categories.flatMap(c => c.services.map(s => ({ ...s, categoryId: c.id, categoryName: c.name }))) ?? [];
   return <Screen title="Business" eyebrow={b.workspace.displayName} showBack={false} subtitle="Your services, schedule and team." refreshing={state.loading} onRefresh={() => void state.refresh()}>
     <BusinessSelector /><View style={ui.wrap}><Action label="Customer workspace" secondary onPress={() => { session.switchPersona('customer'); router.replace('/(tabs)'); }} /><Action label="My account" secondary onPress={() => router.push('/(tabs)/account')} /></View>

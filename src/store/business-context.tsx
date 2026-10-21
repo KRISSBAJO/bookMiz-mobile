@@ -37,7 +37,8 @@ export function useBusiness() {
 }
 export function BusinessSelector() {
   const business = useBusiness();
+  if (business.businesses.length < 2) return null;
   return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-    {business.businesses.map(b => <Pressable key={b.id} accessibilityRole="button" accessibilityState={{ selected: b.id === business.organizationId }} onPress={() => business.select(b.id)} style={{ borderRadius: 12, padding: 12, minHeight: 44, backgroundColor: b.id === business.organizationId ? tokens.colors.inkDeep : '#fff', borderWidth: 1, borderColor: tokens.colors.border }}><Text style={{ color: b.id === business.organizationId ? '#fff' : tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 13 }}>{b.displayName}</Text></Pressable>)}
+    {business.businesses.map(b => <Pressable key={b.id} accessibilityRole="button" accessibilityState={{ selected: b.id === business.organizationId }} onPress={() => business.select(b.id)} style={{ borderRadius: 12, padding: 12, minHeight: 44, backgroundColor: b.id === business.organizationId ? tokens.colors.inkDeep : '#fff', borderWidth: 1, borderColor: tokens.colors.border }}><Text style={{ color: b.id === business.organizationId ? '#fff' : tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 13 }}>{b.id === business.organizationId ? business.workspace.displayName : b.displayName}</Text></Pressable>)}
   </ScrollView>;
 }
