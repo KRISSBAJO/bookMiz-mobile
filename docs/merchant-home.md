@@ -12,6 +12,22 @@ Calendar separator/ellipsis/arrow strings had been incorrectly encoded; the UTF-
 
 Source `030ea65`, compatible preview source `2f2062b`. Tests cover distinct navigation/structure, original currency, pending/overdue tasks, open/all agenda, detail dismissal, and read-only/error states. Physical-device visual acceptance remains pending; no native build or public release is introduced.
 
+## Business cover follow-up
+
+User device feedback requested business imagery instead of the large navy next-client card. Today now leads with the published business cover, falling back to the saved booking-page banner, then a bundled neutral default. Either public-profile or authenticated-settings failure is tolerated independently. Failed remote image downloads switch to the bundled image; a changed cover URL can load normally. Unpublished businesses can use their saved booking banner. Only HTTPS or application-relative image URLs are accepted.
+
+The appointment spotlight is replaced by a compact time/client/service row. On phones, management shortcuts follow the agenda rather than pushing it below the fold. Booking status, stored amount/currency, permissions and reviewed editing remain unchanged. Calendar remains the scheduling grid.
+
+Source `3ac8512`, compatible preview source `18dc72e`. All 78 mobile tests and type checking pass, including cover priority, unpublished/offline businesses, unsafe URL rejection, image-error fallback and a changed image URL. Native visual acceptance remains pending.
+
+### Default cover asset
+
+Saved project asset: `assets/bookmiz/default-business-cover.png`. Generated with the built-in image generation tool in `stylized-concept` mode; original generation retained in the Codex generated-images directory. The image is a neutral abstract architectural composition rather than a depiction of a real business. It is decorative, with the business name rendered separately on a solid background for readable contrast.
+
+Final prompt:
+
+> Use case: stylized-concept. Asset type: default wide business cover image for the BookMiz merchant mobile homepage. Create a premium architectural still life, warm ivory plaster arches and softly curved sculptural surfaces, one deep navy element and a muted sage botanical leaf, subtle lime accent. Abstract and welcoming, refined editorial 3D photography, tactile matte materials, soft natural side light, generous negative space, landscape panoramic composition approximately 3:1, beautiful full bleed crop. This is a neutral default cover across many service businesses, not an image of any real business. No people, no scissors, no nail polish, no industry-specific equipment, no calendar or phone UI, no text, no logos, no borders, no watermark. Opaque background.
+
 ## Calendar and Business implementation
 
 Calendar provides a white native scheduling workspace with a seven-day date strip, week navigation, date selection, team/unassigned filters, search and status filters. Pastel appointment blocks sit at their business-local times, with collision columns and a current-time marker. Agenda is available explicitly and is selected automatically for large text, crowded narrow screens and repeated daylight-saving hours. Exact timezone-labelled start/end times are shown in appointment details. The visual calendar does not claim that blank time is bookable: the existing booking editor checks actual backend availability.
@@ -54,3 +70,12 @@ Published to the existing preview channel on October 21, 2026:
 - android: update `01a15e69-6d9e-7a74-9fb0-054f70e3a7bc`, group `2932400f-afdd-45a2-95fb-7e2d8a05b480`, unchanged runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
 
 Runtime manifests, both bundles and the decorative artwork were downloaded and their SHA-256 hashes verified. Evidence: `E:/BookMiz-merchant-testing/today-briefing-delivery-verification.json`. All 76 tests and type checking passed before publication. No native build or public release was triggered. Native visual acceptance remains pending; the previously blocked emulator startup was not retried.
+
+## Business cover preview delivery
+
+Published October 21, 2026 to the existing preview channel:
+
+- ios: update `01a15e92-f39d-7418-9290-85149a992244`, group `d9aa22d6-0dfd-48f5-a72a-1bfe2f5a3a5a`, unchanged installed runtime `8c9848a7e198a913d8d8d10b79445326921c0f70`.
+- android: update `01a15e92-f39d-7f58-b413-4da3bc179dbc`, group `3bec1490-da38-4924-8a4f-146bba03ac2a`, unchanged installed runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
+
+Both runtime-specific manifests, Hermes bundles and the new default cover asset were downloaded and verified by SHA-256. Evidence: `E:/BookMiz-merchant-testing/today-cover-delivery-verification.json`. All 78 tests and type checking passed. This is an OTA preview update; no native build, backend change or public release was triggered. Physical-device visual acceptance remains pending.
