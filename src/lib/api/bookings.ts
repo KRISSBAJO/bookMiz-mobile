@@ -42,6 +42,7 @@ export type CreatedMobileBooking = {
 export function createCustomerBooking(payload: {
   expectedPriceCents?: number;
   expectedCurrencyCode?: string;
+  expectedPolicyVersion?: string;
   providerId: string;
   serviceId: string;
   startsAt: string;
@@ -164,4 +165,16 @@ export function rescheduleCustomerBooking(
       body: JSON.stringify(payload),
     },
   );
+}
+
+export function getCustomerRescheduleOptions(bookingId: string, params: { date: string; locationId?: string; staffMemberId?: string }) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value) search.set(key, value); });
+  return requestJson<PublicAvailabilityResponse>(`${bookingsUrl}/customer/${encodeURIComponent(bookingId)}/reschedule-options?${search}`, { method: "GET", auth: true });
+}
+
+export function getCustomerRescheduleMonth(bookingId: string, params: { month: string; locationId?: string; staffMemberId?: string }) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value) search.set(key, value); });
+  return requestJson<PublicAvailabilityMonthResponse>(`${bookingsUrl}/customer/${encodeURIComponent(bookingId)}/reschedule-month?${search}`, { method: "GET", auth: true });
 }

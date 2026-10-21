@@ -3,8 +3,9 @@ import type {
   CustomerBookingRecord,
 } from "@/src/lib/api/types";
 
-export function formatBookingDateTime(value: string) {
+export function formatBookingDateTime(value: string, timeZone?: string) {
   return new Date(value).toLocaleString(undefined, {
+    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -13,16 +14,18 @@ export function formatBookingDateTime(value: string) {
   });
 }
 
-export function formatBookingDateLabel(value: string) {
+export function formatBookingDateLabel(value: string, timeZone?: string) {
   return new Date(value).toLocaleDateString(undefined, {
+    timeZone,
     weekday: "long",
     month: "long",
     day: "numeric",
   });
 }
 
-export function formatBookingTimeLabel(value: string) {
+export function formatBookingTimeLabel(value: string, timeZone?: string) {
   return new Date(value).toLocaleTimeString(undefined, {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
@@ -69,21 +72,13 @@ export function formatSecureDocumentSize(sizeBytes: number) {
 }
 
 export function canCancelBooking(booking: CustomerBookingRecord) {
-  return (
-    ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(booking.status) &&
-    (!booking.customerPolicy ||
-      new Date(booking.customerPolicy.changeDeadline).getTime() >= Date.now())
-  );
+  const policy = booking.customerPolicy;
+  return ['PENDING', 'CONFIRMED'].includes(booking.status) && Boolean(policy && !policy.requiresReview && policy.canCancel !== false && Date.now() < new Date(policy.cancellationDeadline ?? policy.changeDeadline).getTime());
 }
 
 export function canRescheduleBooking(booking: CustomerBookingRecord) {
-  return (
-    ["PENDING", "CONFIRMED"].includes(booking.status) &&
-    (!booking.customerPolicy ||
-      new Date(booking.customerPolicy.changeDeadline).getTime() >=
-        Date.now()) &&
-    new Date(booking.startsAt).getTime() > Date.now()
-  );
+  const policy = booking.customerPolicy;
+  return ['PENDING', 'CONFIRMED'].includes(booking.status) && Boolean(policy && !policy.requiresReview && policy.canReschedule !== false && Date.now() < new Date(policy.rescheduleDeadline ?? policy.changeDeadline).getTime());
 }
 
 export function isBookingLiveNow(booking: CustomerBookingRecord) {

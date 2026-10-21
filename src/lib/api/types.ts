@@ -310,6 +310,7 @@ export type MarketplaceProviderProfile = {
     businessPhone: string | null;
     bookingPolicy: string | null;
     cancellationPolicy: string | null;
+    changePolicy?: { cancellationNoticeHours: number; rescheduleNoticeHours: number; cancellationPolicy: string | null; timezone: string; version: string };
     paymentPolicy: string | null;
     locations: MarketplaceLocation[];
     map: {
@@ -513,10 +514,19 @@ export type CustomerBookingRecord = {
   documentUploadToken?: string;
   customerPolicy?: {
     changeDeadline: string;
+    cancellationDeadline?: string;
+    rescheduleDeadline?: string;
+    cancellationNoticeHours?: number;
+    rescheduleNoticeHours?: number;
+    timezone?: string;
+    evaluatedAt?: string;
+    canCancel?: boolean;
+    canReschedule?: boolean;
+    requiresReview?: boolean;
     cancellationPolicy: string | null;
   };
   id: string;
-  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "COMPLETED" | "CANCELLED";
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "COMPLETED" | "CANCELLED" | "NO_SHOW";
   channel: "IN_PERSON" | "VIDEO" | "PHONE" | string;
   startsAt: string;
   endsAt: string;
@@ -532,6 +542,7 @@ export type CustomerBookingRecord = {
     id: string;
     slug: string;
     displayName: string;
+    timezone?: string;
   };
   service: {
     id: string;
@@ -557,6 +568,8 @@ export type CustomerBookingRecord = {
 
 export type RescheduleCustomerBookingPayload = {
   startsAt: string;
+  assignedStaffId?: string;
+  locationId?: string;
   reason?: string;
 };
 

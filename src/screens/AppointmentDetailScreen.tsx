@@ -19,8 +19,8 @@ import { Screen } from "@/src/components/Screen";
 import {
   cancelCustomerBooking,
   getCustomerBooking,
-  getPublicBookingAvailability,
-  getPublicBookingAvailabilityMonth,
+  getCustomerRescheduleOptions,
+  getCustomerRescheduleMonth,
   rescheduleCustomerBooking,
   resumeCustomerPayment,
 } from "@/src/lib/api/bookings";
@@ -109,8 +109,9 @@ function formatCalendarDate(value: string) {
   }).format(new Date(`${value}T12:00:00.000Z`));
 }
 
-function formatSlotLabel(slot: PublicAvailabilitySlot) {
+function formatSlotLabel(slot: PublicAvailabilitySlot, timeZone?: string) {
   const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
@@ -120,8 +121,9 @@ function formatSlotLabel(slot: PublicAvailabilitySlot) {
   )}`;
 }
 
-function formatSlotStart(slot: PublicAvailabilitySlot) {
+function formatSlotStart(slot: PublicAvailabilitySlot, timeZone?: string) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(slot.startAt));
@@ -336,6 +338,7 @@ export function AppointmentDetailScreen() {
     setRescheduleOpen(true);
   }, [booking]);
 
+  const businessTimezone = booking?.customerPolicy?.timezone ?? booking?.provider.timezone ?? 'UTC';
   const availabilityLocationId =
     booking?.channel === "IN_PERSON" ? booking.location?.id : undefined;
   const availabilityStaffMemberId = booking?.assignedStaff?.id;
@@ -383,9 +386,7 @@ export function AppointmentDetailScreen() {
     async function loadMonthAvailability() {
       try {
         setMonthAvailabilityLoading(true);
-        const availability = await getPublicBookingAvailabilityMonth({
-          providerId: currentBooking.provider.id,
-          serviceId: currentBooking.service.id,
+        const availability = await getCustomerRescheduleMonth(currentBooking.id, {
           month: toAvailabilityDate(calendarMonth),
           locationId: availabilityLocationId,
           staffMemberId: availabilityStaffMemberId,
@@ -468,9 +469,7 @@ export function AppointmentDetailScreen() {
     async function loadSlots() {
       try {
         setSlotsLoading(true);
-        const availability = await getPublicBookingAvailability({
-          providerId: currentBooking.provider.id,
-          serviceId: currentBooking.service.id,
+        const availability = await getCustomerRescheduleOptions(currentBooking.id, {
           date: toAvailabilityDate(selectedDate),
           locationId: availabilityLocationId,
           staffMemberId: availabilityStaffMemberId,
@@ -569,6 +568,8 @@ export function AppointmentDetailScreen() {
       setError(null);
       const updated = await rescheduleCustomerBooking(booking.id, {
         startsAt: selectedSlotStartAt,
+        assignedStaffId: slots.find(slot => slot.startAt === selectedSlotStartAt)?.staffOptions?.[0]?.staffMemberId,
+        locationId: slots.find(slot => slot.startAt === selectedSlotStartAt)?.locationId,
         reason: rescheduleReason.trim() || undefined,
       });
       setBooking(updated);
@@ -584,7 +585,7 @@ export function AppointmentDetailScreen() {
     } finally {
       setBusyAction(null);
     }
-  }, [booking, rescheduleReason, selectedSlotStartAt]);
+  }, [booking, rescheduleReason, selectedSlotStartAt, slots]);
 
   const paymentLabel = booking ? bookingPaymentLabel(booking) : "";
   const paymentPill = paymentTone(paymentLabel);
@@ -631,7 +632,7 @@ export function AppointmentDetailScreen() {
     <View style={styles.root}>
       <Screen
         title="Appointment"
-        eyebrow={booking ? formatBookingDateLabel(booking.startsAt) : undefined}
+        eyebrow={booking ? formatBookingDateLabel(booking.startsAt, businessTimezone) : undefined}
         action={headerAction}
         refreshing={isLoading && Boolean(booking)}
         onRefresh={() => void loadBooking()}
@@ -677,7 +678,7 @@ export function AppointmentDetailScreen() {
                     {booking.provider.displayName}
                   </Text>
                   <Text style={styles.heroCardMeta} numberOfLines={1}>
-                    {formatBookingTimeLabel(booking.startsAt)} ·{" "}
+                    {formatBookingTimeLabel(booking.startsAt, businessTimezone)} ·{" "}
                     {booking.service.durationMinutes} min
                     {booking.assignedStaff
                       ? ` · ${booking.assignedStaff.displayName ?? booking.assignedStaff.firstName}`
@@ -832,11 +833,9 @@ export function AppointmentDetailScreen() {
                   Cancellation and rescheduling
                 </Text>
                 <Text style={styles.sectionBody}>
-                  Changes allowed until{" "}
-                  {new Date(
-                    booking.customerPolicy.changeDeadline,
-                  ).toLocaleString()}
-                  .
+                  Cancel by {new Date(booking.customerPolicy.cancellationDeadline ?? booking.customerPolicy.changeDeadline).toLocaleString(undefined, { timeZone: booking.customerPolicy.timezone ?? booking.provider.timezone ?? 'UTC' })}{'\n'}
+                  Reschedule by {new Date(booking.customerPolicy.rescheduleDeadline ?? booking.customerPolicy.changeDeadline).toLocaleString(undefined, { timeZone: booking.customerPolicy.timezone ?? booking.provider.timezone ?? 'UTC' })}{'\n'}
+                  {booking.customerPolicy.timezone ?? booking.provider.timezone ?? 'UTC'}. After the deadline, contact the business. Cancellation does not automatically confirm a refund.
                 </Text>
                 {booking.customerPolicy.cancellationPolicy ? (
                   <Text style={styles.sectionBody}>
@@ -1031,9 +1030,9 @@ export function AppointmentDetailScreen() {
                   <Text style={styles.modalTitle}>Reschedule</Text>
                   <Text style={styles.modalSubtitle}>
                     Now{" "}
-                    {booking ? formatBookingDateLabel(booking.startsAt) : ""}
+                    {booking ? formatBookingDateLabel(booking.startsAt, businessTimezone) : ""}
                     {booking
-                      ? ` at ${formatBookingTimeLabel(booking.startsAt)}`
+                      ? ` at ${formatBookingTimeLabel(booking.startsAt, businessTimezone)}`
                       : ""}
                   </Text>
                 </View>
@@ -1194,7 +1193,7 @@ export function AppointmentDetailScreen() {
                             onPress={() => setSelectedSlotStartAt(slot.startAt)}
                             accessibilityRole="button"
                             accessibilityState={{ selected: isSelected }}
-                            accessibilityLabel={formatSlotLabel(slot)}
+                            accessibilityLabel={formatSlotLabel(slot, businessTimezone)}
                           >
                             <Text
                               style={[
@@ -1202,7 +1201,7 @@ export function AppointmentDetailScreen() {
                                 isSelected ? styles.slotLabelSelected : null,
                               ]}
                             >
-                              {formatSlotStart(slot)}
+                              {formatSlotStart(slot, businessTimezone)}
                             </Text>
                           </Pressable>
                         );
@@ -1216,7 +1215,7 @@ export function AppointmentDetailScreen() {
                   )}
                   {selectedSlot ? (
                     <Text style={styles.slotSummary}>
-                      New time: {formatSlotLabel(selectedSlot)}
+                      New time: {formatSlotLabel(selectedSlot, businessTimezone)}
                       {(selectedSlot.staffOptions?.length ?? 0) > 1
                         ? ` · ${selectedSlot.staffOptions?.length} staff available`
                         : ""}
