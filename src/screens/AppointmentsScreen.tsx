@@ -1,3 +1,4 @@
+import { appointmentDayKey, appointmentDayLabel, upcomingAppointments } from '../lib/appointment-feed';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -109,15 +110,10 @@ export function AppointmentsScreen() {
 
     const live = bookings.filter((booking) => isBookingLiveNow(booking));
     const cancelled = bookings.filter((booking) => booking.status === "CANCELLED");
-    const upcoming = bookings.filter(
-      (booking) =>
-        booking.status !== "CANCELLED" &&
-        booking.status !== "COMPLETED" &&
-        new Date(booking.startsAt).getTime() > now,
-    );
+    const upcoming = upcomingAppointments(bookings, now);
     const past = bookings.filter(
       (booking) =>
-        booking.status === "COMPLETED" ||
+        booking.status === "COMPLETED" || booking.status === "NO_SHOW" ||
         (booking.status !== "CANCELLED" &&
           new Date(booking.endsAt).getTime() <= now),
     );
@@ -163,6 +159,7 @@ export function AppointmentsScreen() {
   return (
     <Screen
       title="Appointments"
+      subtitle={`Times shown in ${Intl.DateTimeFormat().resolvedOptions().timeZone}`}
       eyebrow={!isLoading && bookingBuckets.upcoming.length > 0 ? `${bookingBuckets.upcoming.length} upcoming` : undefined}
       refreshing={isLoading && bookings.length > 0}
       onRefresh={() => void loadBookings()}
@@ -232,13 +229,15 @@ export function AppointmentsScreen() {
             </View>
           ))
         ) : filteredBookings.length > 0 ? (
-          filteredBookings.map((booking) => {
+          filteredBookings.map((booking, index) => {
             const tile = dateTileParts(booking.startsAt);
             const tone = statusTone(booking.status);
             const live = isBookingLiveNow(booking);
+            const showDay = index === 0 || appointmentDayKey(filteredBookings[index - 1].startsAt) !== appointmentDayKey(booking.startsAt);
             return (
+              <View key={booking.id}>
+              {showDay ? <Text accessibilityRole="header" style={{color:tokens.colors.inkDeep,fontFamily:tokens.font.bold,fontSize:14,marginTop:index?16:0,marginBottom:10}}>{appointmentDayLabel(booking.startsAt)}</Text> : null}
               <Pressable
-                key={booking.id}
                 style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
                 accessibilityRole="button"
                 onPress={() =>
@@ -297,6 +296,7 @@ export function AppointmentsScreen() {
                   </View>
                 </View>
               </Pressable>
+              </View>
             );
           })
         ) : (
