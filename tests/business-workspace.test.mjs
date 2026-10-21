@@ -85,6 +85,20 @@ test('add-service shortcut opens the service editor once and cannot grant staff 
     finally { await act(async () => tree.unmount()); }
   }
 });
+
+test('appointment deep link opens an already mounted row and is consumed on dismissal', async () => {
+  const f = fixture(); const { BookingCard } = f.load('src/components/business/BookingCard.tsx');
+  const booking = { id: 'visit', startsAt: '2026-10-21T16:00:00Z', endsAt: '2026-10-21T17:00:00Z', customerName: 'Alex', serviceName: 'Haircut', status: 'CONFIRMED', paymentStatus: 'UNPAID', totalPriceCents: 0, currencyCode: 'USD', channel: 'IN_PERSON' };
+  let tree, dismissed = 0; const props = { booking, onRefresh: async () => {}, onDismiss: () => { dismissed++; } };
+  await act(async () => { tree = create(React.createElement(BookingCard, props)); });
+  try {
+    assert.equal(tree.root.findAllByType('Modal').length, 0);
+    await act(async () => tree.update(React.createElement(BookingCard, { ...props, initialOpen: true })));
+    assert.equal(tree.root.findAllByType('Modal').length, 1);
+    await act(async () => findButton(tree, 'Close').props.onPress());
+    assert.equal(dismissed, 1); assert.equal(tree.root.findAllByType('Modal').length, 0);
+  } finally { await act(async () => tree.unmount()); }
+});
 test('bank editor verifies account ownership, invalidates verification on edits and saves only explicit NGN details', async () => {
   const writes = []; let draftWrites = 0;
   const f = fixture({ businessRequest: async (url, org, method, payload) => {
