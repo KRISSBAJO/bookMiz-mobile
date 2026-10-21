@@ -18,7 +18,10 @@ export function notificationDestination(item: InboxNotification) {
       const match = url.searchParams.get("matchId") || url.searchParams.get("quoteMatchId");
       return { route: `/business/requests${match && /^[0-9a-f-]{36}$/i.test(match) ? `?matchId=${match}` : ""}`, label: "View customer request", native: true };
     }
-    if (/^\/provider\/settings\/?$/.test(path)) return { route: "/business/manage", label: "View business settings", native: true };
+    if (/^\/provider\/settings\/?$/.test(path)) {
+      if (['payment', 'money', 'billing'].includes(url.searchParams.get('section') ?? '')) return { route: '/business/money', label: 'View business money', native: true };
+      return { route: "/business/manage", label: "View business settings", native: true };
+    }
     const provider = path.match(/^\/marketplace\/providers\/([a-z0-9-]+)\/?$/i);
     if (provider) return { route: `/providers/${encodeURIComponent(provider[1]!)}`, label: "View provider", native: true };
     return { route: url.toString(), label: "Open BookMiz website", native: false };

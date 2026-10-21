@@ -6,6 +6,22 @@ export function availableBusinesses(userType: string | undefined, organizations:
 export function canManageBusiness(role?: string) {
   return ['ORG_ADMIN', 'SERVICE_PROVIDER', 'STAFF_MANAGER'].includes(role ?? '');
 }
+export function canManageBusinessMoney(role?: string) {
+  return ['ORG_ADMIN', 'SERVICE_PROVIDER'].includes(role ?? '');
+}
+export function payoutAmount(value: string, available: number, minimum = 1) {
+  const cents = moneyInput(value);
+  if (cents < minimum) throw new Error('The amount is below the minimum payout.');
+  if (cents > 2147483647 || cents > available) throw new Error('The amount exceeds your available balance.');
+  return cents;
+}
+// Correlation reference only; authentication remains the server's responsibility.
+export function payoutReference() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const n = Math.floor(Math.random() * 16);
+    return (c === 'x' ? n : (n & 3) | 8).toString(16);
+  });
+}
 export function moneyInput(value: string) {
   if (!/^\d+(\.\d{1,2})?$/.test(value.trim())) throw new Error('Enter a price with up to two decimal places.');
   const [whole, fraction = ''] = value.trim().split('.');
@@ -30,7 +46,11 @@ export function bookingActions(status: string) {
   }
 }
 export function formatBusinessMoney(cents: number, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency, currencyDisplay: 'code' }).format(cents / 100);
+  try {
+    const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency, currencyDisplay: 'code' });
+    if (!Number.isSafeInteger(cents) || formatter.resolvedOptions().maximumFractionDigits !== 2) return `${currency} amount requires review`;
+    return formatter.format(cents / 100);
+  } catch { return 'Amount requires review'; }
 }
 export function validateHours(start: string, end: string) {
   const valid = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
