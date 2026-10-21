@@ -2,9 +2,19 @@
 
 Booksy references supplied by the user on October 21, 2026 informed the structure: calendar first, compact date navigation, flatter rows and focused editing. BookMiz retains its own branding, illustration and existing functionality. Booksy assets and promotional claims are not copied.
 
-## Current implementation
+## Today daily briefing (October 21 follow-up)
 
-Today and Calendar share a white native scheduling workspace with a seven-day date strip, week navigation, date selection, team/unassigned filters, search and status filters. Pastel appointment blocks sit at their business-local times, with collision columns and a current-time marker. Agenda is available explicitly and is selected automatically for large text, crowded narrow screens and repeated daylight-saving hours. Exact timezone-labelled start/end times are shown in appointment details. The visual calendar does not claim that blank time is bookable: the existing booking editor checks actual backend availability.
+User device feedback showed that sharing the schedule component made Today and Calendar indistinguishable. Today now has its own implementation: business-local greeting/date, a next-client spotlight, upcoming/completed/pending counts, attention tasks, an open/all compact agenda, and a New appointment action for managers. There is no week navigation, date browsing, team filter or hourly grid on Today. Calendar retains these planning controls.
+
+The next appointment excludes terminal and overdue visits. Pending appointments remain labelled pending; a scheduled time does not imply the client checked in. Past-time active appointments remain visible as tasks. Counts are appointment counts, never mixed-currency revenue totals. Saved zero and mixed-currency booking amounts remain intact. Failed schedule or request reads do not masquerade as a successful empty day. Attention uses a tablet side column and flows before the agenda on phones. The existing illustration appears in the empty spotlight.
+
+Calendar separator/ellipsis/arrow strings had been incorrectly encoded; the UTF-8 source is repaired and rendering coverage rejects the reported mojibake. Today creation and details reuse the existing reviewed, permission-checked editors.
+
+Source `030ea65`, compatible preview source `2f2062b`. Tests cover distinct navigation/structure, original currency, pending/overdue tasks, open/all agenda, detail dismissal, and read-only/error states. Physical-device visual acceptance remains pending; no native build or public release is introduced.
+
+## Calendar and Business implementation
+
+Calendar provides a white native scheduling workspace with a seven-day date strip, week navigation, date selection, team/unassigned filters, search and status filters. Pastel appointment blocks sit at their business-local times, with collision columns and a current-time marker. Agenda is available explicitly and is selected automatically for large text, crowded narrow screens and repeated daylight-saving hours. Exact timezone-labelled start/end times are shown in appointment details. The visual calendar does not claim that blank time is bookable: the existing booking editor checks actual backend availability.
 
 Creation carries the selected date and team member into the existing reviewed booking flow. Original saved booking prices/currencies, including a stored zero, remain unchanged. Appointment mutations keep existing permission checks and confirmations. Scoped deep links open the appropriate details and are consumed on dismissal; rescheduling remains mounted until its editor closes.
 
@@ -23,7 +33,7 @@ Final prompt:
 
 ## Validation and deployment
 
-Type checking and all 74 mobile tests pass. Coverage includes overlap separation, business-local dates, overnight clipping, repeated clock hours, original zero/mixed currencies, selected date/staff creation, details dismissal, staff permissions and independent auxiliary failures. Both native release exports succeed and point to deployed HTTPS BookMiz APIs. No backend migration or native dependency change is required.
+Type checking and all 76 mobile tests pass. Coverage includes overlap separation, business-local dates, overnight clipping, repeated clock hours, original zero/mixed currencies, selected date/staff creation, details dismissal, staff permissions and independent auxiliary failures. Both native release exports succeed and point to deployed HTTPS BookMiz APIs. No backend migration or native dependency change is required.
 
 Source commits: `2cb6243`, `5575cd8`, `fd0ce38`; preview checkout equivalent: `bce2fc1`. Preview publication and verification are recorded below. Public release remains pending device acceptance.
 
@@ -35,3 +45,12 @@ Published to the existing `preview` branch/channel on October 21, 2026. No nativ
 Runtime-specific manifest requests selected the expected releases. Both Hermes bundles and the illustration were downloaded with Expo-provided asset authorization headers and their SHA-256 hashes verified. No runtime override was used. Delivery evidence: `E:/BookMiz-merchant-testing/merchant-schedule-delivery-verification.json`.
 
 The earlier card-based homepage was viewed on the Android emulator, but that screenshot does not validate this replacement calendar design. Starting the emulator/Appium for this version was rejected by automatic approval review with only “blocked by policy”; it was not retried. Native visual acceptance, tablet layout and physical iOS testing remain outstanding. Use Account → Check for updates, apply/restart and open the business workspace. This preview is not a claim of production readiness for the whole application.
+
+## Distinct Today preview delivery
+
+Published to the existing preview channel on October 21, 2026:
+
+- ios: update `01a15e69-6d9e-7fdf-aa1c-5abba895af10`, group `b8b6aebb-7f1b-461c-b201-bd6423a86500`, unchanged runtime `8c9848a7e198a913d8d8d10b79445326921c0f70`.
+- android: update `01a15e69-6d9e-7a74-9fb0-054f70e3a7bc`, group `2932400f-afdd-45a2-95fb-7e2d8a05b480`, unchanged runtime `b458e56796edaa9a0aebce320d6c491163561b33`.
+
+Runtime manifests, both bundles and the decorative artwork were downloaded and their SHA-256 hashes verified. Evidence: `E:/BookMiz-merchant-testing/today-briefing-delivery-verification.json`. All 76 tests and type checking passed before publication. No native build or public release was triggered. Native visual acceptance remains pending; the previously blocked emulator startup was not retried.
