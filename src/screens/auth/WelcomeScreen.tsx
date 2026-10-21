@@ -80,6 +80,7 @@ export function WelcomeScreen() {
             />
           </View>
         ) : null}
+        <AuthButton label="Create my business" variant="ghost" icon="store" onPress={() => router.push("/merchant-signup" as never)} />
         <AuthButton label="Get started" icon="arrow-right" onPress={() => router.push("/signup")} />
         <AuthButton
           label="I already have an account"

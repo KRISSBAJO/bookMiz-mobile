@@ -812,11 +812,11 @@ export function ExploreScreen() {
 
       <View style={styles.section}>
         <SectionHeader
-          title={!searchData?.results.length && searchData?.alternatives?.length ? searchData.alternativesOrder === "distance" ? "Nearest available businesses" : "Explore businesses in other cities" : searchData?.headline ?? "Results"}
+          title={!searchData?.results.length && searchData?.alternatives?.length ? searchData.alternativesMatchSearch === false ? "More businesses to explore" : searchData.alternativesOrder === "distance" ? "Nearest available businesses" : "Explore businesses in other cities" : searchData?.headline ?? "Results"}
           subtitle={
             searchData?.pagination.total
               ? `${searchData.pagination.total} provider${searchData.pagination.total === 1 ? "" : "s"}`
-              : searchData?.alternatives?.length ? "No local matches yet. These businesses are in other areas; check their address before booking." : undefined
+              : searchData?.alternatives?.length ? searchData.alternativesMatchSearch === false ? "No matching services yet. Explore other services and locations below; check each business before booking." : "No local matches yet. These businesses are in other areas; check their address before booking." : undefined
           }
         />
 

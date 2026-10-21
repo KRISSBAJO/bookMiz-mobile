@@ -436,6 +436,7 @@ export function AccountScreen() {
       ) : null}
 
       <View style={styles.group}>
+        <SettingsRow icon="file-invoice" label="Invoices & receipts" onPress={() => router.push('/financial-documents' as never)} />
         <SettingsRow
           icon="calendar-days"
           label="Appointments"

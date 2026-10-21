@@ -130,6 +130,36 @@ function utility(path) {
   new Function("exports", code)(result);
   return result;
 }
+test('merchant onboarding keeps five steps and retries workspace creation without registering twice', async()=>{
+ const signup=deferred();let registrations=0,provisions=0;const requests=[];
+ const city={id:'lagos',city:'Lagos',stateCode:'LA',countryCode:'NG',countryName:'Nigeria',currencyCode:'NGN',label:'Lagos, Nigeria',timezone:'Africa/Lagos'};
+ const Signup=screen('MerchantSignupScreen',{
+  '../components/business/BusinessUI':{Action:'Button',Field:'Field',Notice:'Notice',Editor:({children})=>React.createElement('Editor',{},children),ui:{}},
+  '../store/session-context':{useSession:()=>({isHydrating:false,isSignedIn:false,businesses:[],applyAuthResponse:async()=>{}})},
+  '../store/discovery-context':{useDiscovery:()=>({cities:[city]})},
+  '../lib/api/marketplace':{listCategoryDiscovery:async mode=>mode==='LOCAL'?[{id:'beauty',name:'Beauty',slug:'beauty',serviceModel:'LOCAL'}]:[]},
+  '../lib/api/merchant-onboarding':{registerOwnerMobile:async()=>{registrations++;return signup.promise;},onboardBusiness:async payload=>{requests.push(payload);if(++provisions===1)throw Error('Temporary setup outage');}},
+  '../lib/merchant-onboarding':utility('merchant-onboarding'),
+  '../lib/mobile-env':{mobileEnv:{webAppUrl:'https://www.bookmiz.com'}},
+  '../theme/tokens':{tokens:{colors:{},font:{}}},
+  '../../assets/bookmiz/barber.png':1,'../../assets/bookmiz/manicure.png':1,'../../assets/bookmiz/hospital.png':1,'../../assets/bookmiz/merchant-day-illustration.png':1,
+ });
+ let tree;await act(async()=>{tree=create(React.createElement(Signup));});
+ const field=async(label,value)=>act(async()=>{tree.root.findAllByType('Field').find(n=>n.props.label===label).props.onChangeText(value);});
+ await act(async()=>tree.root.findAllByType('Pressable').find(n=>n.props.accessibilityState?.selected===false).props.onPress());
+ await press(tree.root,'Continue');await field('Business name','Lagos fixture');await press(tree.root,'Continue');
+ await press(tree.root,'Choose your city');await press(tree.root,city.label);await field('Street address','123 Test Road');await field('Postal or ZIP code','100001');await press(tree.root,'Continue');
+ for(const [label,value] of [['First name','Test'],['Last name','Owner'],['Email','owner@example.test'],['Password','secure-fixture-only']])await field(label,value);
+ await press(tree.root,'Continue');assert(tree.root.findAllByType('Text').some(n=>n.children.join('')==='STEP 5 OF 5'));
+ await act(async()=>tree.root.findAllByType('Pressable').find(n=>n.props.accessibilityRole==='checkbox').props.onPress());
+ const submit=tree.root.findAllByType('Button').find(n=>n.props.label==='Create your business');
+ await act(async()=>{submit.props.onPress();submit.props.onPress();});assert.equal(registrations,1);
+ await act(async()=>{signup.resolve({organizations:[{id:'org',role:'ORG_ADMIN'}]});});
+ assert.equal(provisions,1);assert(tree.root.findAllByType('Notice').some(n=>n.props.text==='Temporary setup outage'));
+ await press(tree.root,'Create your business');assert.equal(registrations,1);assert.equal(provisions,2);
+ assert.equal(requests[1].cityId,'lagos');assert.equal(requests[1].acceptedTerms,true);assert.equal(requests[1].currencyCode,undefined,'server derives currency');
+ assert(labels(tree.root).includes('Your next chapter is ready.'));await act(async()=>tree.unmount());
+});
 const labels = (root) =>
   root
     .findAllByType("Text")
