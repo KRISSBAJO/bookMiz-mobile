@@ -1,3 +1,4 @@
+import { inboxDay, inboxPresentation } from '../lib/inbox-presentation';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -18,7 +19,7 @@ import {
 } from "react-native";
 
 import { Screen } from "@/src/components/Screen";
-import { SectionHeader } from "@/src/components/SectionHeader";
+
 import {
   listInboxNotifications,
   markAllInboxNotificationsRead,
@@ -49,16 +50,6 @@ function formatDateLabel(value: string) {
   }
 
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function initialsFor(value: string) {
-  const letters = value
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-  return letters || "B";
 }
 
 function SkeletonRows() {
@@ -108,6 +99,8 @@ export function InboxScreen() {
   const cursorRef = useRef<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const loadingRef = useRef(false);
+  const requestVersion = useRef(0), pendingReads = useRef(new Set<string>()), readVersion = useRef(0), locallyRead = useRef(new Map<string,string>());
+  const [filter,setFilter] = useState<'ALL'|'UNREAD'|'MESSAGES'|'BOOKINGS'|'PAYMENTS'>('ALL');
   const [markingAll, setMarkingAll] = useState(false);
   const [notifications, setNotifications] = useState<InboxNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -115,43 +108,49 @@ export function InboxScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const loadInbox = useCallback(async (append = false) => {
-    if (loadingRef.current) return;
+    if (append && loadingRef.current) return;
+    const version = ++requestVersion.current, readsAtStart = readVersion.current;
     loadingRef.current = true;
     try {
       setError(null);
       setIsLoading(true);
       const inbox = await listInboxNotifications({
         limit: 20,
+        unreadOnly: filter === "UNREAD",
+        category: ["MESSAGES","BOOKINGS","PAYMENTS"].includes(filter) ? filter as "MESSAGES"|"BOOKINGS"|"PAYMENTS" : undefined,
         cursor: append ? (cursorRef.current ?? undefined) : undefined,
       });
+      if(version !== requestVersion.current)return;
+      const items=inbox.items.map(item=>locallyRead.current.has(item.id)?{...item,readAt:item.readAt??locallyRead.current.get(item.id)!}:item).filter(item=>filter!=='UNREAD'||!item.readAt);
       setNotifications((current) =>
         append
           ? [
               ...current,
-              ...inbox.items.filter(
+              ...items.filter(
                 (item) => !current.some((existing) => existing.id === item.id),
               ),
             ]
-          : inbox.items,
+          : items,
       );
       cursorRef.current = inbox.nextCursor ?? null;
       setHasMore(Boolean(inbox.nextCursor));
-      setUnreadCount(inbox.unreadCount);
+      if(readsAtStart === readVersion.current)setUnreadCount(inbox.unreadCount);
     } catch (nextError) {
+      if(version !== requestVersion.current)return;
       const message =
         nextError instanceof Error
           ? nextError.message
           : "We could not load your inbox right now.";
       setError(message);
     } finally {
-      setIsLoading(false);
-      loadingRef.current = false;
+      if(version === requestVersion.current){setIsLoading(false);loadingRef.current = false;}
     }
-  }, []);
+  }, [filter]);
 
   useFocusEffect(
     useCallback(() => {
       void loadInbox();
+      return () => {requestVersion.current++;loadingRef.current=false;};
     }, [loadInbox]),
   );
 
@@ -174,8 +173,11 @@ export function InboxScreen() {
 
   const handleMarkRead = useCallback(
     async (notificationId: string) => {
+      if(pendingReads.current.has(notificationId))return;
+      pendingReads.current.add(notificationId);readVersion.current++;locallyRead.current.set(notificationId,new Date().toISOString());
+      if(locallyRead.current.size>500)locallyRead.current.delete(locallyRead.current.keys().next().value!);
       setNotifications((current) =>
-        current.map((item) =>
+        filter === "UNREAD" ? current.filter(item=>item.id!==notificationId) : current.map((item) =>
           item.id === notificationId
             ? { ...item, readAt: item.readAt ?? new Date().toISOString() }
             : item,
@@ -184,11 +186,13 @@ export function InboxScreen() {
       setUnreadCount((current) => Math.max(0, current - 1));
 
       try {
-        await markInboxNotificationRead(notificationId);
+        const result=await markInboxNotificationRead(notificationId);
+        if(typeof result?.unreadCount === "number")setUnreadCount(result.unreadCount);
       } catch {
+        locallyRead.current.delete(notificationId);
         setDetailError("Could not mark this update as read. Your message is still available.");
         await loadInbox();
-      }
+      } finally {pendingReads.current.delete(notificationId);}
     },
     [loadInbox],
   );
@@ -221,73 +225,34 @@ export function InboxScreen() {
       showBack={false}
       refreshing={isLoading && notifications.length > 0}
       onRefresh={() => void loadInbox()}
-      subtitle={
-        unreadCount > 0
-          ? `${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`
-          : "Updates from requests, bookings and your account."
-      }
+      subtitle="Conversations and activity, in one place."
+      heroContent={<View style={styles.summary}><View style={styles.summaryIcon}><FontAwesome6 name="inbox" size={22} color={tokens.colors.brand}/></View><View style={styles.body}><Text style={styles.summaryTitle}>{unreadCount ? `${unreadCount} unread updates` : 'You’re all caught up'}</Text><Text style={styles.summaryMeta}>Messages, bookings and payments</Text></View>{unreadCount>0?<Pressable accessibilityRole="button" accessibilityLabel="Mark all updates read" disabled={markingAll} onPress={()=>void handleMarkAllRead()} style={styles.markAll}><FontAwesome6 name="check-double" size={16} color="#fff"/><Text style={styles.markAllText}>{markingAll?'Saving…':'Read all'}</Text></Pressable>:null}</View>}
     >
-      <SectionHeader
-        title="Messages"
-        actionLabel={unreadCount > 0 ? "Mark all read" : undefined}
-        onAction={unreadCount > 0 ? () => void handleMarkAllRead() : undefined}
-      />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+       {(['ALL','UNREAD','MESSAGES','BOOKINGS','PAYMENTS'] as const).map(value=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:filter===value}} accessibilityLabel={`Show ${value.toLowerCase()} updates`} style={[styles.filter,filter===value?styles.filterSelected:null]} onPress={()=>{if(value!==filter){setNotifications([]);setFilter(value);}}}><Text style={[styles.filterText,filter===value?styles.filterTextSelected:null]}>{value==='ALL'?'All updates':value[0]+value.slice(1).toLowerCase()}</Text></Pressable>)}
+      </ScrollView>
 
       {isLoading && notifications.length === 0 ? <SkeletonRows /> : null}
 
       {notifications.length > 0 ? (
         <View style={styles.list}>
-          {notifications.map((notification) => {
-            const unread = !notification.readAt;
-            return (
-              <Pressable
-                key={notification.id}
-                accessibilityRole="button"
-                accessibilityLabel={`${notification.title}${unread ? ", unread" : ""}`}
-                style={({ pressed }) => [
-                  styles.row,
-                  pressed ? styles.rowPressed : null,
-                ]}
-                onPress={() => {
-                  setDetailError(null);
-                  setOpened(notification);
-                  if (!notification.readAt)
-                    void handleMarkRead(notification.id);
-                }}
-              >
-                <View
-                  style={[styles.avatar, unread ? styles.avatarUnread : null]}
-                >
-                  <Text
-                    style={[
-                      styles.avatarText,
-                      unread ? styles.avatarTextUnread : null,
-                    ]}
-                  >
-                    {initialsFor(notification.title)}
-                  </Text>
-                </View>
+          {notifications.map((notification,index) => {
+            const unread=!notification.readAt, presentation=inboxPresentation(notification), day=inboxDay(notification.createdAt);
+            const first=index===0 || inboxDay(notifications[index-1].createdAt)!==day;
+            const last=index===notifications.length-1 || inboxDay(notifications[index+1].createdAt)!==day;
+            return <View key={notification.id}>
+              {first?<Text accessibilityRole="header" style={styles.dayHeading}>{day}</Text>:null}
+              <Pressable accessibilityRole="button" accessibilityLabel={`${notification.title}${unread?', unread':''}`} style={({pressed})=>[styles.row,first?styles.rowFirst:null,last?styles.rowLast:null,unread?styles.rowUnread:null,pressed?styles.rowPressed:null]} onPress={()=>{setDetailError(null);setOpened(notification);if(unread)void handleMarkRead(notification.id);}}>
+                <View style={[styles.avatar,{backgroundColor:presentation.tint}]}><FontAwesome6 name={presentation.icon} size={19} color={presentation.color}/></View>
                 <View style={styles.body}>
-                  <View style={styles.headlineRow}>
-                    <Text
-                      style={[styles.title, unread ? styles.titleUnread : null]}
-                      numberOfLines={1}
-                    >
-                      {notification.title}
-                    </Text>
-                    <Text style={styles.time}>
-                      {formatDateLabel(notification.createdAt)}
-                    </Text>
-                  </View>
-                  <View style={styles.messageRow}>
-                    <Text style={styles.message} numberOfLines={2}>
-                      {notification.body}
-                    </Text>
-                    {unread ? <View style={styles.unreadDot} /> : null}
-                  </View>
+                  <View style={styles.headlineRow}><Text style={[styles.category,{color:presentation.color}]}>{presentation.kind}</Text><Text style={styles.time}>{formatDateLabel(notification.createdAt)}</Text></View>
+                  <Text style={[styles.title,unread?styles.titleUnread:null]} numberOfLines={2}>{presentation.title}</Text>
+                  {presentation.source?<Text style={styles.source} numberOfLines={1}>{presentation.source}</Text>:null}
+                  <Text style={styles.message} numberOfLines={2}>{presentation.preview}</Text>
                 </View>
+                <View style={styles.rowEnd}>{unread?<View style={styles.unreadDot}/>:null}<FontAwesome6 name="chevron-right" size={10} color={tokens.colors.mutedSoft}/></View>
               </Pressable>
-            );
+            </View>;
           })}
         </View>
       ) : null}
@@ -295,6 +260,7 @@ export function InboxScreen() {
       {hasMore ? (
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Load older updates"
           disabled={isLoading}
           onPress={() => void loadInbox(true)}
         >
@@ -338,9 +304,10 @@ export function InboxScreen() {
       </Modal>
       {!isLoading && notifications.length === 0 && !error ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No messages yet</Text>
+          <View style={styles.emptyIcon}><FontAwesome6 name="inbox" size={28} color={tokens.colors.inkDeep}/></View>
+          <Text style={styles.emptyTitle}>{filter === "UNREAD" ? "All caught up" : filter === "ALL" ? "Your inbox starts here" : `No ${filter.toLowerCase()} updates yet`}</Text>
           <Text style={styles.emptyBody}>
-            Replies to your requests and booking updates land here.
+            {filter === "UNREAD" ? "You have read all your updates. Check All updates for your history." : "Updates appear here as you book, message businesses and make payments."}
           </Text>
         </View>
       ) : null}
@@ -378,16 +345,19 @@ const styles = StyleSheet.create({
   detailDivider: { height: 1, backgroundColor: tokens.colors.border, marginVertical: 6 },
   detailBody: { color: tokens.colors.ink, fontFamily: tokens.font.regular, fontSize: 15, lineHeight: 25 },
   detailFooter: { padding: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.colors.border, backgroundColor: "#ffffff" },
-  list: {
-    gap: 12,
-  },
+  summary:{flexDirection:'row',alignItems:'center',gap:12,backgroundColor:tokens.colors.inkDeep,borderRadius:22,padding:18,flexWrap:'wrap'},
+  summaryIcon:{width:44,height:44,borderRadius:15,backgroundColor:tokens.colors.navySoft,alignItems:'center',justifyContent:'center'},summaryTitle:{color:'#fff',fontSize:17,fontFamily:tokens.font.bold},summaryMeta:{color:tokens.colors.onNavyMuted,fontSize:12,fontFamily:tokens.font.regular},
+  markAll:{flexDirection:'row',alignItems:'center',gap:6,paddingVertical:12,paddingHorizontal:5},markAllText:{color:'#fff',fontSize:12,fontFamily:tokens.font.semibold},
+  filters:{gap:8,paddingVertical:4},filter:{minHeight:40,paddingHorizontal:15,paddingVertical:10,borderRadius:20,backgroundColor:'#fff',borderWidth:1,borderColor:tokens.colors.border},filterSelected:{backgroundColor:tokens.colors.inkDeep,borderColor:tokens.colors.inkDeep},filterText:{fontFamily:tokens.font.medium,color:tokens.colors.muted,fontSize:13},filterTextSelected:{color:'#fff'},
+  dayHeading:{fontFamily:tokens.font.semibold,color:tokens.colors.muted,fontSize:12,letterSpacing:0.4,marginTop:18,marginBottom:10},
+  rowFirst:{borderTopLeftRadius:20,borderTopRightRadius:20},rowLast:{borderBottomLeftRadius:20,borderBottomRightRadius:20,borderBottomWidth:0},rowUnread:{backgroundColor:'#fbfdf8'},category:{fontFamily:tokens.font.semibold,fontSize:10,textTransform:'uppercase',letterSpacing:0.5,flex:1},source:{fontFamily:tokens.font.medium,fontSize:12,color:tokens.colors.ink},rowEnd:{alignItems:'center',justifyContent:'space-between',gap:18},emptyIcon:{backgroundColor:tokens.colors.brandSoft,width:64,height:64,borderRadius:22,alignItems:'center',justifyContent:'center',marginBottom:10},
+  list: {gap:0},
   row: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     backgroundColor: "#ffffff",
-    borderRadius: 16,
-    borderWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: tokens.colors.border,
     paddingHorizontal: 14,
     paddingVertical: 14,
@@ -398,7 +368,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 15,
     backgroundColor: tokens.colors.surfaceSoft,
     borderWidth: 1,
     borderColor: tokens.colors.border,
@@ -428,9 +398,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   title: {
-    flex: 1,
+    flexShrink: 1,
     color: tokens.colors.ink,
-    fontSize: 15,
+    fontSize: 14,
+    lineHeight: 20,
     fontFamily: tokens.font.semibold,
   },
   titleUnread: {

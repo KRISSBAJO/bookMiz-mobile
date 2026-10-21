@@ -47,6 +47,7 @@ export function unregisterPushDevice(
 export function listInboxNotifications(options?: {
   limit?: number;
   unreadOnly?: boolean;
+  category?: "BOOKINGS" | "MESSAGES" | "PAYMENTS";
   cursor?: string;
 }) {
   const search = new URLSearchParams();
@@ -59,6 +60,7 @@ export function listInboxNotifications(options?: {
     search.set("unreadOnly", "true");
   }
 
+  if (options?.category) search.set("category", options.category);
   if (options?.cursor) search.set("cursor", options.cursor);
   const query = search.toString();
 
@@ -72,7 +74,7 @@ export function listInboxNotifications(options?: {
 }
 
 export function markInboxNotificationRead(notificationId: string) {
-  return requestJson<MessageResponseData>(
+  return requestJson<MessageResponseData & {unreadCount?:number}>(
     `${notificationsUrl}/inbox/${notificationId}/read`,
     {
       method: "POST",

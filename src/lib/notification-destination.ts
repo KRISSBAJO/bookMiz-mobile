@@ -29,9 +29,9 @@ export function notificationDestination(item: InboxNotification) {
 }
 
 export function notificationCategory(eventKey: string) {
+  if (/payout|payment|refund/.test(eventKey)) return { label: "Payment update", icon: "wallet" as const };
   if (/quote|request|match|conversation/.test(eventKey)) return { label: "Service request", icon: "comments" as const };
   if (/booking|appointment/.test(eventKey)) return { label: "Booking update", icon: "calendar-check" as const };
-  if (/payout|payment|refund/.test(eventKey)) return { label: "Payment update", icon: "wallet" as const };
   if (/security|account|auth/.test(eventKey)) return { label: "Account update", icon: "shield-halved" as const };
   return { label: "BookMiz update", icon: "bell" as const };
 }
