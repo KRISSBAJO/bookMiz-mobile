@@ -7,11 +7,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url), ts = require('typescript'), React = require('react'), { act, create } = require('react-test-renderer');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-function fixture(api = {}, overrides = {}) {
+function fixture(api = {}, overrides = {}, options = {}) {
+  const routes = [], params = { ...options.params };
+  const router = { push: route => routes.push(route), replace: route => routes.push(route), setParams: next => Object.assign(params, next) };
   const workspace = { id: 'p', organizationId: 'org', displayName: 'Test Studio', timezone: 'America/Chicago', currencyCode: 'USD', deliveryModes: ['IN_PERSON'] };
   const business = { organizationId: 'org', workspace, canManage: true, businesses: [{ id: 'org', role: 'ORG_ADMIN', displayName: 'Test Studio' }], ...overrides };
-  const native = { View: 'View', Text: 'Text', TextInput: 'TextInput', Pressable: 'Pressable', Modal: 'Modal', Image: 'Image', Switch: 'Switch', ActivityIndicator: 'Loading', KeyboardAvoidingView: 'KeyboardAvoidingView', ScrollView: 'ScrollView', StyleSheet: { create: x => x, hairlineWidth: 1 }, Platform: { OS: 'android' }, Linking: { openURL: async () => {} }, useWindowDimensions: () => ({ width: 320, height: 640 }) };
-  const mocks = { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-native': native, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' }, 'expo-router': { useFocusEffect: callback => React.useEffect(callback, [callback]), useRouter: () => ({ push() {}, replace() {} }), useLocalSearchParams: () => ({}) }, '@expo/vector-icons': { FontAwesome6: 'Icon' }, '@react-native-community/datetimepicker': { default: 'DatePicker' }, 'expo-document-picker': { getDocumentAsync: async () => ({ canceled: true }) }, 'expo-file-system': { File: class {}, Paths: { cache: { uri: 'cache/' } } } };
+  const native = { View: 'View', Text: 'Text', TextInput: 'TextInput', Pressable: 'Pressable', Modal: 'Modal', Image: 'Image', Switch: 'Switch', ActivityIndicator: 'Loading', KeyboardAvoidingView: 'KeyboardAvoidingView', ScrollView: 'ScrollView', StyleSheet: { create: x => x, hairlineWidth: 1 }, Platform: { OS: 'android' }, Linking: { openURL: async () => {} }, useWindowDimensions: () => ({ width: options.width ?? 320, height: 640, fontScale: options.fontScale ?? 1 }) };
+  const mocks = { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-native': native, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' }, 'expo-router': { useFocusEffect: callback => React.useEffect(callback, [callback]), useRouter: () => router, useLocalSearchParams: () => params }, '@expo/vector-icons': { FontAwesome6: 'Icon' }, '@react-native-community/datetimepicker': { default: 'DatePicker' }, 'expo-document-picker': { getDocumentAsync: async () => ({ canceled: true }) }, 'expo-file-system': { File: class {}, Paths: { cache: { uri: 'cache/' } } } };
   const cache = new Map();
   function load(relative) {
     let filename = path.resolve(root, relative);
@@ -21,7 +23,7 @@ function fixture(api = {}, overrides = {}) {
     if (canonical.endsWith('session-context.tsx')) return { useSession: () => ({ user: { id: 'user' } }) };
     if (canonical.endsWith('api/business.ts') || canonical.endsWith('api/business-money.ts')) return api;
     if (canonical.endsWith('/drafts.ts')) return { readDraft: api.readDraft ?? (async () => null), writeDraft: api.writeDraft ?? (async () => {}) };
-    if (canonical.endsWith('components/Screen.tsx')) return { Screen: props => React.createElement('Screen', props, props.children) };
+    if (canonical.endsWith('components/Screen.tsx')) return { Screen: ({ children, action, ...props }) => React.createElement('Screen', props, action, children) };
     if (canonical.endsWith('api/error-display.ts')) return { getFriendlyApiError: (e, fallback) => e?.message || fallback };
     if (cache.has(filename)) return cache.get(filename);
     const result = {}; cache.set(filename, result);
@@ -29,13 +31,60 @@ function fixture(api = {}, overrides = {}) {
     new Function('require', 'exports', code)(name => {
       if (mocks[name]) return mocks[name];
       if (name.endsWith('.ttf')) return 'font';
+      if (name.endsWith('.png')) return 'illustration';
       return load(name.startsWith('@/') ? name.slice(2) : path.resolve(path.dirname(filename), name));
     }, result);
     return result;
   }
-  return { load, business };
+  return { load, business, routes, params };
 }
 const policy = fixture().load('src/lib/business-policy.ts');
+test('day summary orders bookings and excludes expired/terminal visits from the next appointment', () => {
+  const { merchantDay } = fixture().load('src/lib/merchant-home.ts');
+  const visit = (id, start, status = 'CONFIRMED', assignedStaffId = null) => ({ id, startsAt: `2026-10-21T${start}:00Z`, endsAt: `2026-10-21T${start}:30Z`, status, assignedStaffId, totalPriceCents: 0, currencyCode: 'USD' });
+  const records = [visit('future', '16:00', 'PENDING'), visit('cancelled', '13:00', 'CANCELLED'), visit('late', '12:00'), visit('done', '11:00', 'COMPLETED'), visit('current', '14:00', 'CHECKED_IN', 'staff')];
+  const result = merchantDay(records, new Date('2026-10-21T14:00:15Z'));
+  assert.equal(result.next.id, 'current'); assert.equal(result.completed, 1); assert.equal(result.remaining.length, 3);
+  assert.deepEqual(result.overdue.map(x => x.id), ['late']); assert.deepEqual(result.pending.map(x => x.id), ['future']);
+  assert.deepEqual(result.unassigned.map(x => x.id), ['late', 'future']);
+  assert.equal(records[0].id, 'future'); assert.equal(result.next.totalPriceCents, 0);
+});
+
+test('home uses business-day data and original zero/mixed-currency totals and routes useful shortcuts', async t => {
+  const day = policy.businessDate(new Date(), 'America/Chicago');
+  const start = policy.businessDateTimeToIso(day, '11:00', 'America/Chicago');
+  const records = [{ id: 'zero', customerName: 'Alex', serviceName: 'Original booking', startsAt: start, endsAt: start, status: 'CONFIRMED', paymentStatus: 'UNPAID', totalPriceCents: 0, currencyCode: 'USD', assignedStaffId: null }, { id: 'ngn', customerName: 'Taylor', serviceName: 'Second service', startsAt: start, endsAt: start, status: 'COMPLETED', paymentStatus: 'PAID', totalPriceCents: 1299, currencyCode: 'NGN', assignedStaffId: 'staff' }];
+  const f = fixture({ getMerchantBookings: async () => ({ bookings: records }), getMerchantBootstrap: async () => ({ stats: { openRequests: 2, activeServices: 5, activeStaff: 2 } }) });
+  const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Booking total/); assert.match(output, /USD/); assert.match(output, /0\.00/); assert.match(output, /NGN/); assert.match(output, /12\.99/); assert.match(output, /Need a team member/);
+  await act(async () => findButton(tree, 'Availability').props.onPress());
+  await act(async () => findButton(tree, 'Add service').props.onPress());
+  await act(async () => findButton(tree, 'Money').props.onPress());
+  assert.deepEqual(f.routes, ['/business/manage?section=availability', '/business/manage?section=services&action=add-service', '/business/money']);
+  assert.equal(tree.root.findAllByType('Image').length, 0); // small-screen text gets the space
+});
+
+test('staff homepage exposes read access and loading errors never masquerade as an empty successful day', async t => {
+  const f = fixture({ getMerchantBookings: async () => { throw new Error('Offline'); }, getMerchantBootstrap: async () => ({ stats: {} }) }, { canManage: false, businesses: [{ id: 'org', role: 'STAFF' }] }, { width: 840 });
+  const { MerchantTodayScreen } = f.load('src/screens/business/MerchantTodayScreen.tsx'); let tree;
+  await act(async () => { tree = create(React.createElement(MerchantTodayScreen)); });
+  t.after(async () => { await act(async () => tree.unmount()); });
+  const output = JSON.stringify(tree.toJSON()); assert.match(output, /Offline/); assert.doesNotMatch(output, /all caught up|New booking|Add service|Payments & payouts/);
+  assert.equal(tree.root.findAllByType('Image').length, 1);
+  await act(async () => findButton(tree, 'Messages').props.onPress()); assert.deepEqual(f.routes, ['/business/inbox']);
+});
+
+test('add-service shortcut opens the service editor once and cannot grant staff write access', async () => {
+  for (const canManage of [true, false]) {
+    const f = fixture({ getMerchantServices: async () => ({ categories: [] }), getMerchantSettings: async () => ({ workingHours: [], staffMembers: [], locations: [], timeOffs: [] }) }, { canManage }, { params: { section: 'services', action: 'add-service' } });
+    const { MerchantManageScreen } = f.load('src/screens/business/MerchantManageScreen.tsx'); let tree;
+    await act(async () => { tree = create(React.createElement(MerchantManageScreen)); });
+    try { assert.equal(tree.root.findAllByType('Modal').length, canManage ? 1 : 0); if (canManage) assert.equal(f.params.action, undefined); }
+    finally { await act(async () => tree.unmount()); }
+  }
+});
 test('bank editor verifies account ownership, invalidates verification on edits and saves only explicit NGN details', async () => {
   const writes = []; let draftWrites = 0;
   const f = fixture({ businessRequest: async (url, org, method, payload) => {

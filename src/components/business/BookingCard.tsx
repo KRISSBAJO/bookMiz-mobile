@@ -1,20 +1,24 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { useBusiness } from '../../store/business-context';
 import { businessRequest, type MerchantBooking } from '../../lib/api/business';
 import { bookingActions, formatBusinessMoney } from '../../lib/business-policy';
+import { businessInitials } from '../../lib/merchant-home';
+import { tokens as t } from '../../theme/tokens';
 import { Action, Badge, Editor, Field, Notice, ui, useBusinessMutation } from './BusinessUI';
 import { BookingEditor } from './BookingEditor';
-export function BookingCard({ booking: b, onRefresh, initialOpen = false }: { booking: MerchantBooking; initialOpen?: boolean; onRefresh: () => Promise<void> }) {
+export function BookingCard({ booking: b, onRefresh, initialOpen = false, featured = false }: { booking: MerchantBooking; initialOpen?: boolean; featured?: boolean; onRefresh: () => Promise<void> }) {
   const business = useBusiness(), mutation = useBusinessMutation();
   const [open, setOpen] = useState(initialOpen), [reschedule, setReschedule] = useState(false), [nextStatus, setNext] = useState(''), [reason, setReason] = useState('');
+  useFocusEffect(useCallback(() => { if (initialOpen) setOpen(true); }, [initialOpen]));
   const time = new Date(b.startsAt).toLocaleTimeString(undefined, { timeZone: business.workspace.timezone, hour: 'numeric', minute: '2-digit' });
   const actionNames: Record<string, string> = { CONFIRMED: 'Confirm booking', CHECKED_IN: 'Check in', COMPLETED: 'Complete appointment', NO_SHOW: 'Mark no-show', CANCELLED: 'Cancel appointment' };
   async function change() { await mutation.run(async () => { await businessRequest(`bookings/${b.id}/${nextStatus === 'CANCELLED' ? 'cancel' : 'status'}`, business.organizationId, 'PATCH', { ...(nextStatus === 'CANCELLED' ? {} : { status: nextStatus }), reason: reason.trim() || undefined }); }, async () => { setNext(''); setOpen(false); await onRefresh(); }); }
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${time}, ${b.customerName}, ${b.serviceName}, ${b.status}`} onPress={() => setOpen(true)} style={[ui.card, { flexDirection: 'row', padding: 14 }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${time}, ${b.customerName}, ${b.serviceName}, ${b.status}, booking total ${formatBusinessMoney(b.totalPriceCents, b.currencyCode)}`} onPress={() => setOpen(true)} style={[ui.card, { flexDirection: 'row', padding: 14 }, featured && { borderColor: t.colors.brandDeep, backgroundColor: '#fbfff4' }]}>
       <View style={{ width: 65, borderRightWidth: 1, borderColor: '#e3e9f2', paddingRight: 10 }}><Text style={[ui.title, { fontSize: 13 }]}>{time}</Text><Text style={ui.muted}>{Math.round((new Date(b.endsAt).getTime() - new Date(b.startsAt).getTime()) / 60000)} min</Text></View>
-      <View style={ui.grow}><View style={[ui.row, { flexWrap: 'wrap', justifyContent: 'space-between' }]}><Text style={[ui.title, { fontSize: 14, flexShrink: 1 }]}>{b.customerName}</Text><Badge value={b.status} /></View><Text style={ui.text}>{b.serviceName}</Text><Text style={ui.muted}>{b.staffName || 'Unassigned'} · {formatBusinessMoney(b.totalPriceCents, b.currencyCode)}</Text></View>
+      <View style={[ui.grow, { gap: 8 }]}><View style={ui.row}><View accessible={false} style={{ width: 32, height: 32, borderRadius: 11, backgroundColor: t.colors.surface, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontFamily: t.font.semibold, color: t.colors.ink, fontSize: 11 }}>{businessInitials(b.customerName)}</Text></View><View style={ui.grow}><Text style={[ui.title, { fontSize: 14 }]}>{b.customerName || 'Customer'}</Text><Text style={ui.muted}>{b.serviceName}</Text></View></View><View style={ui.wrap}><Badge value={b.status} /><Badge value={b.paymentStatus} /></View><Text style={ui.muted}>{b.staffName || 'No team member assigned'}</Text><Text style={[ui.muted, { color: t.colors.ink }]}>Booking total · {formatBusinessMoney(b.totalPriceCents, b.currencyCode)}</Text></View>
     </Pressable>
     {open ? <Editor title="Appointment" subtitle={new Date(b.startsAt).toLocaleDateString(undefined, { timeZone: business.workspace.timezone, weekday: 'long', day: 'numeric', month: 'long' })} busy={mutation.busy} onClose={() => { setOpen(false); setNext(''); }}>
       <View style={ui.card}><Text style={ui.title}>{b.customerName}</Text><Text style={ui.text}>{b.serviceName}</Text><Text style={ui.text}>{time} · {business.workspace.timezone}</Text><View style={ui.wrap}><Badge value={b.status} /><Badge value={b.paymentStatus} /></View><Text style={ui.title}>{formatBusinessMoney(b.totalPriceCents, b.currencyCode)}</Text><Text style={ui.muted}>{b.staffName || 'No team member assigned'} · {b.locationName || b.channel.replaceAll('_', ' ')}</Text>{b.notes ? <Text style={ui.text}>{b.notes}</Text> : null}</View>

@@ -21,7 +21,7 @@ export function MerchantCalendarScreen() {
     if (bookingId) businessRequest<{ booking: MerchantBooking }>(`bookings/${encodeURIComponent(bookingId)}`, b.organizationId).then(result => {
       if (!active) return;
       const date = businessDate(result.booking.startsAt, b.workspace.timezone);
-      setDay(date); setSelected(date); setLinkError('');
+      setDay(date); setSelected(date); setFilter('ALL'); setSearch(''); setStaff(''); setLinkError('');
     }).catch(() => { if (active) setLinkError('This appointment is not available in the selected business.'); });
     return () => { active = false; };
   }, [bookingId, b.organizationId, b.workspace.timezone]);
