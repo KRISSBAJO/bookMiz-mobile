@@ -12,6 +12,7 @@ export function ProfilePhotoEditor({ userId, photoUrl, fullName, email, initials
   userId: string; photoUrl?: string | null; fullName: string; email: string; initials: string; onSaved: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const identity = useRef<string | null>(userId);
@@ -56,6 +57,12 @@ export function ProfilePhotoEditor({ userId, photoUrl, fullName, email, initials
       <View style={styles.copy}>
         <Text style={styles.name}>{fullName}</Text>
         <Text style={styles.email}>{email}</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Photo options" accessibilityState={{ expanded: showPhotoOptions, disabled: busy }} disabled={busy} style={styles.photoToggle} onPress={() => setShowPhotoOptions((open) => !open)}>
+        <FontAwesome6 name={showPhotoOptions ? "xmark" : "camera"} size={17} color={tokens.colors.ink} />
+      </Pressable>
+    </View>
+    {showPhotoOptions ? <View style={styles.photoOptions}>
         <View style={styles.actions}>
           <Pressable accessibilityRole="button" accessibilityLabel={photoUrl ? "Change profile photo" : "Add profile photo"} accessibilityState={{ disabled: busy }} disabled={busy} style={styles.button} onPress={() => void change()}>
             {busy ? <ActivityIndicator size="small" color={tokens.colors.ink} /> : <FontAwesome6 name="camera" size={13} color={tokens.colors.ink} />}
@@ -63,15 +70,16 @@ export function ProfilePhotoEditor({ userId, photoUrl, fullName, email, initials
           </Pressable>
           {photoUrl ? <Pressable accessibilityRole="button" accessibilityLabel="Remove profile photo" accessibilityState={{ disabled: busy }} disabled={busy} style={styles.remove} onPress={() => void change(true)}><Text style={styles.removeLabel}>Remove</Text></Pressable> : null}
         </View>
-      </View>
-    </View>
     <Text style={styles.help}>JPG, PNG or WebP · Up to 3 MB · Photos are cropped to a square.</Text>
+    </View> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
   </View>;
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 10, paddingVertical: 8 }, identity: { flexDirection: "row", alignItems: "center", gap: 16 },
+  section: { gap: 10, padding: 18, borderRadius: 20, backgroundColor: tokens.colors.surfaceSoft }, identity: { flexDirection: "row", alignItems: "center", gap: 14 },
+  photoToggle: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  photoOptions: { gap: 8, paddingTop: 4 },
   avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: tokens.colors.inkDeep, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   image: { width: 72, height: 72 }, initials: { color: "#ffffff", fontFamily: tokens.font.bold, fontSize: 22 },
   copy: { flex: 1, minWidth: 0, gap: 4 }, name: { color: tokens.colors.ink, fontFamily: tokens.font.semibold, fontSize: 20 },

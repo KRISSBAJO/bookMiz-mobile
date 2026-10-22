@@ -148,6 +148,7 @@ export function AccountScreen() {
       profile?.notificationPreferences ?? null,
     );
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [personalInfoExpanded, setPersonalInfoExpanded] = useState(false);
   const [isEditingNotifications, setIsEditingNotifications] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
@@ -236,35 +237,41 @@ export function AccountScreen() {
         </View>
       ) : null}
 
-      <View style={styles.profileSection}>
-        <View style={styles.sectionHeading}>
-          <View style={styles.sectionHeadingCopy}>
+      <View style={styles.personalCard}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Personal information"
+          accessibilityState={{ expanded: personalInfoExpanded || isEditingProfile, disabled: isEditingProfile }}
+          disabled={isEditingProfile}
+          onPress={() => setPersonalInfoExpanded((expanded) => !expanded)}
+          style={({ pressed }) => [styles.personalHeading, pressed && styles.rowPressed]}>
+          <View style={styles.personalIcon}><FontAwesome6 name="address-card" size={19} color={tokens.colors.ink} /></View>
+          <View style={styles.personalCopy}>
             <Text style={styles.editorTitle} accessibilityRole="header">Personal information</Text>
-            <Text style={styles.detailLabel}>Your contact details for bookings</Text>
+            <Text style={styles.detailLabel}>Contact details & home location</Text>
           </View>
-          {!isEditingProfile ? (
-            <AuthButton label="Edit profile" icon="pen-to-square" variant="secondary"
-              style={styles.editProfileButton} onPress={() => setIsEditingProfile(true)} />
-          ) : null}
-        </View>
-        {!isEditingProfile ? <View>
+          <FontAwesome6 name={personalInfoExpanded || isEditingProfile ? "chevron-up" : "chevron-down"} size={13} color={tokens.colors.muted} />
+        </Pressable>
+        {personalInfoExpanded && !isEditingProfile ? <View style={styles.personalDetails}>
         {[
-          { label: "Email", value: email || "Not provided" },
-          { label: "Phone", value: profile?.phone || "Add a phone number" },
-          { label: "Location", value: locationLabel || "Add your city" },
+          { label: "Email", icon: "envelope" as IconName, value: email || "Not provided" },
+          { label: "Phone", icon: "phone" as IconName, value: profile?.phone || "Add a phone number" },
+          { label: "Home location", icon: "location-dot" as IconName, value: locationLabel || "Add your city" },
         ].map((item) => (
           <View key={item.label} style={styles.profileDetail}>
+            <FontAwesome6 name={item.icon} size={14} color={tokens.colors.muted} />
+            <View style={styles.personalCopy}>
             <Text style={styles.detailLabel}>{item.label}</Text>
             <Text selectable style={styles.detailValue}>
               {item.value}
             </Text>
+            </View>
           </View>
         ))}
+        <AuthButton label="Edit profile" icon="pen-to-square" variant="secondary"
+          onPress={() => setIsEditingProfile(true)} />
         </View> : null}
-      </View>
 
       {isEditingProfile ? (
-        <View style={styles.editor}>
+        <View style={styles.personalEditor}>
           <Text style={styles.editorTitle}>Edit profile</Text>
 
           <View style={styles.fieldRow}>
@@ -316,6 +323,7 @@ export function AccountScreen() {
             <AuthButton
               label="Cancel"
               variant="secondary"
+              disabled={isSavingProfile}
               style={styles.editorActionButton}
               onPress={() => setIsEditingProfile(false)}
             />
@@ -349,6 +357,7 @@ export function AccountScreen() {
           </View>
         </View>
       ) : null}
+      </View>
 
       <View style={styles.group}>
         <SettingsRow
@@ -528,6 +537,12 @@ export function AccountScreen() {
 }
 
 const styles = StyleSheet.create({
+  personalCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: tokens.colors.border, overflow: "hidden" },
+  personalHeading: { flexDirection: "row", alignItems: "center", gap: 12, padding: 18, minHeight: 88 },
+  personalIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: tokens.colors.brandSoft, alignItems: "center", justifyContent: "center" },
+  personalCopy: { flex: 1, minWidth: 0, gap: 3 },
+  personalDetails: { paddingHorizontal: 18, paddingBottom: 18, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.colors.border },
+  personalEditor: { padding: 18, gap: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.colors.border },
   accountContent: { width: "100%", maxWidth: 640, alignSelf: "center", gap: 16 },
   sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
   sectionHeadingCopy: { gap: 4, flexShrink: 1 },
@@ -542,7 +557,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   profileDetail: {
-    gap: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: tokens.colors.border,

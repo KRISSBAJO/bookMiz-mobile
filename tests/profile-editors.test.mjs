@@ -57,10 +57,14 @@ test('photo cancellation and oversized selection do not upload; successful repla
     "@/src/lib/api/auth": { uploadProfilePhoto: async (value) => { calls.push(value); }, removeProfilePhoto: async () => calls.push('remove') },
   });
   let tree; await act(async () => { tree = create(React.createElement(ProfilePhotoEditor, { userId: 'fixture', fullName: 'Test User', email: 'test@example.invalid', initials: 'TU', onSaved: async () => calls.push('refresh') })); });
+  assert.equal(tree.root.findAllByProps({ accessibilityLabel: 'Add profile photo' }).length, 0);
+  await press(tree, 'Photo options');
   await press(tree, 'Add profile photo'); assert.equal(calls.length, 0);
   selection = { assets: [{ uri: 'file:///cache/image.png', size: 4 * 1024 * 1024 }] };
   await press(tree, 'Add profile photo'); assert.equal(calls.length, 0); assert.equal(deletes, 1);
   selection = { assets: [{ uri: 'file:///cache/image.png', size: 100 }] };
   await press(tree, 'Add profile photo'); assert.deepEqual(calls, ['cGhvdG8=', 'refresh']); assert.equal(deletes, 2);
+  await press(tree, 'Photo options');
+  assert.equal(tree.root.findAllByProps({ accessibilityLabel: 'Add profile photo' }).length, 0);
   await act(async () => tree.unmount());
 });
