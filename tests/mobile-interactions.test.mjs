@@ -779,3 +779,33 @@ test('account personal information starts closed and preserves profile editing, 
   await act(async () => tree.unmount());
 });
 
+
+test('device notification toggle waits for registration, prevents duplicate requests and retains state on failure', async () => {
+  const registration = deferred(), enabling = deferred(); let enables = 0, disables = 0;
+  const user = { id: 'fixture', firstName: 'Test', lastName: 'User' };
+  const session = { user, profile: null };
+  const Account = screen('AccountScreen', {
+    '@/src/components/PersonaSwitcher': { PersonaSwitcher: 'PersonaSwitcher' },
+    '@/src/components/AppUpdatesPanel': { AppUpdatesPanel: 'AppUpdatesPanel' },
+    '@/src/components/ProfilePhotoEditor': { ProfilePhotoEditor: 'PhotoEditor' },
+    '@/src/components/ProfileLocationPicker': { ProfileLocationPicker: 'LocationPicker' },
+    '@/src/lib/mobile-push': { getPushRegistration: () => registration.promise, enablePush: async () => { enables++; await enabling.promise; }, disablePush: async () => { disables++; throw Error('Permission update failed'); } },
+    '@/src/store/session-context': { useSession: () => session },
+  });
+  let tree; await act(async () => { tree = create(React.createElement(Account)); });
+  const toggle = () => tree.root.findByProps({ accessibilityLabel: 'Device notifications' });
+  assert.equal(toggle().props.disabled, true);
+  await act(async () => registration.resolve(null));
+  assert.equal(toggle().props.value, false);
+  const change = toggle().props.onValueChange;
+  let first; await act(async () => { first = change(true); void change(true); });
+  assert.equal(enables, 1); assert.equal(toggle().props.disabled, true);
+  assert.equal(toggle().props.value, false);
+  await act(async () => { enabling.resolve(); await first; });
+  assert.equal(toggle().props.value, true);
+  await act(async () => toggle().props.onValueChange(false));
+  assert.equal(disables, 1); assert.equal(toggle().props.value, true);
+  assert.equal(toggle().props.disabled, false);
+  assert(tree.root.findAllByProps({ accessibilityRole: 'alert' }).some(node => node.props.children === 'Permission update failed'));
+  await act(async () => tree.unmount());
+});

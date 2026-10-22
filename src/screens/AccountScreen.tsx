@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   Pressable,
@@ -155,13 +155,18 @@ export function AccountScreen() {
   const [error, setError] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const pushInFlight = useRef(false);
   useEffect(() => {
     let active = true;
+    setPushReady(false);
     void getPushRegistration()
       .then((saved) => {
         if (active) setPushEnabled(Boolean(user?.id && saved?.userId === user.id));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (active) setPushReady(true); });
     return () => {
       active = false;
     };
@@ -467,48 +472,45 @@ export function AccountScreen() {
         </View>
       ) : null}
 
-      <View style={styles.profileSection}>
-        <View style={styles.sectionHeading}>
+      <View style={styles.notificationCard}>
+        <View style={styles.notificationHeading}>
+          <View style={styles.personalIcon}><FontAwesome6 name="bell" size={19} color={tokens.colors.ink} /></View>
+          <View style={styles.personalCopy}>
           <Text accessibilityRole="header" style={styles.editorTitle}>Device notifications</Text>
-          <View style={[styles.statusBadge, pushEnabled ? styles.statusBadgeEnabled : null]}>
-            <View style={[styles.statusDot, pushEnabled ? styles.statusDotEnabled : null]} />
-            <Text style={styles.statusText}>{pushEnabled ? "Enabled" : "Off"}</Text>
+            <Text style={styles.detailLabel} accessibilityLiveRegion="polite">{pushBusy ? "Updating…" : !pushReady ? "Checking…" : pushEnabled ? "On · Alerts enabled" : "Off · Alerts paused"}</Text>
           </View>
-        </View>
-        <Text style={styles.detailLabel}>
-          Receive private activity alerts on this device. Message and payment
-          details stay inside BookMiz.
-        </Text>
-        <AuthButton
-          label={
-            pushEnabled
-              ? "Disable device notifications"
-              : "Enable device notifications"
-          }
-          variant="secondary"
-          style={styles.deviceButton}
-          loading={pushBusy}
-          disabled={pushBusy}
-          onPress={async () => {
-            if (!user) return;
+        <Switch
+          accessibilityLabel="Device notifications"
+          value={pushEnabled}
+          trackColor={{ false: tokens.colors.borderStrong, true: tokens.colors.brand }}
+          thumbColor="#ffffff"
+          ios_backgroundColor={tokens.colors.borderStrong}
+          disabled={pushBusy || !pushReady || !user}
+          onValueChange={async (enabled) => {
+            if (!user || pushInFlight.current || !pushReady || enabled === pushEnabled) return;
+            pushInFlight.current = true;
             setPushBusy(true);
-            setError(null);
+            setPushError(null);
             try {
-              if (pushEnabled) await disablePush(user.id);
+              if (!enabled) await disablePush(user.id);
               else await enablePush(user.id);
-              setPushEnabled(!pushEnabled);
+              setPushEnabled(enabled);
             } catch (reason) {
-              setError(
+              setPushError(
                 getFriendlyApiError(
                   reason,
                   "Could not update device notifications. Check your device settings and try again.",
                 ),
               );
             } finally {
+              pushInFlight.current = false;
               setPushBusy(false);
             }
           }}
         />
+        </View>
+        <Text style={styles.detailLabel}>Booking reminders and activity alerts on this device. Message and payment details stay inside BookMiz.</Text>
+        {pushError ? <Text style={styles.errorText} accessibilityRole="alert">{pushError}</Text> : null}
       </View>
       <View style={styles.group}>
         <SettingsRow
@@ -537,6 +539,8 @@ export function AccountScreen() {
 }
 
 const styles = StyleSheet.create({
+  notificationCard: { padding: 18, gap: 12, backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: tokens.colors.border },
+  notificationHeading: { flexDirection: "row", alignItems: "center", gap: 12 },
   personalCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: tokens.colors.border, overflow: "hidden" },
   personalHeading: { flexDirection: "row", alignItems: "center", gap: 12, padding: 18, minHeight: 88 },
   personalIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: tokens.colors.brandSoft, alignItems: "center", justifyContent: "center" },
