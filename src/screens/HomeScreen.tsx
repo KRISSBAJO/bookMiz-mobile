@@ -1,4 +1,5 @@
 import { UpcomingAppointmentCard } from '../components/UpcomingAppointmentCard';
+import { BookingLocationControl } from '../components/BookingLocationControl';
 import { upcomingAppointments } from '../lib/appointment-feed';
 import { useDiscovery } from '../store/discovery-context';
 import { discoverySearch } from '../lib/discovery-location';
@@ -263,7 +264,7 @@ export function HomeScreen() {
         >
           <View style={styles.topRow}>
             <Pressable
-              onPress={() => router.push("/choose-city" as never)}
+              onPress={() => router.push("/(tabs)/account" as never)}
               accessibilityRole="button"
               accessibilityLabel="Account"
               style={styles.avatar}
@@ -282,22 +283,6 @@ export function HomeScreen() {
                 {firstName}
               </Text>
             </View>
-            {city ? (
-              <Pressable
-                onPress={() => router.push("/(tabs)/account" as never)}
-                accessibilityRole="button"
-                style={styles.cityChip}
-              >
-                <FontAwesome6
-                  name="location-dot"
-                  size={12}
-                  color={tokens.colors.ink}
-                />
-                <Text style={styles.cityChipText} numberOfLines={1}>
-                  {city}
-                </Text><FontAwesome6 name="chevron-down" size={10} color={tokens.colors.ink} />
-              </Pressable>
-            ) : null}
             <Pressable
               onPress={() => router.push("/(tabs)/inbox" as never)}
               accessibilityRole="button"
@@ -307,6 +292,8 @@ export function HomeScreen() {
               <FontAwesome6 name="bell" size={17} color={tokens.colors.ink} />
             </Pressable>
           </View>
+
+          <BookingLocationControl label={discovery.selected?.label || 'Choose a city or country'} detecting={discovery.detecting}/>
 
           <View style={styles.searchShell}>
             <FontAwesome6
