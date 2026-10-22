@@ -32,11 +32,13 @@ function fixture(options = {}) {
       Platform: { OS: options.platform || "ios" },
       Text: "Text",
       View: "View",
+      Pressable: "Pressable",
       StyleSheet: { create: (x) => x },
     },
+    expo: { requireOptionalNativeModule: () => options.missingApplication ? null : { nativeApplicationVersion: "1.0.0", nativeBuildVersion: "4" } },
     "expo-constants": {
       __esModule: true,
-      default: { nativeAppVersion: "1.0.0", nativeBuildVersion: "4" },
+      default: { expoConfig: { version: "1.0.0" } },
     },
     "expo-updates": updates,
     "@/src/components/auth/AuthButton": {
@@ -244,4 +246,16 @@ test("repeated presses share the in-flight check and development or web previews
     assert.deepEqual(disabled.calls, []);
     await act(async () => tree.unmount());
   }
+});
+
+test('update details use native build information and expose recovery information without inventing a build', async () => {
+  const f = fixture({ missingApplication: true, updates: { isEmergencyLaunch: true, emergencyLaunchReason: 'Startup failed', runtimeVersion: 'runtime-fixture', channel: 'preview', updateId: 'update-fixture', isEmbeddedLaunch: true } });
+  let tree; await act(async () => { tree = f.render(); });
+  assert(!text(tree).includes('Build 4'));
+  assert.match(text(tree), /saved version/);
+  const details = () => tree.root.findByProps({ accessibilityLabel: 'Update details' });
+  await act(async () => details().props.onPress());
+  assert.equal(details().props.accessibilityState.expanded, true);
+  assert.match(text(tree), /runtime-fixture/); assert.match(text(tree), /Recovery: Startup failed/);
+  await act(async () => tree.unmount());
 });

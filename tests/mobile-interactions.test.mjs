@@ -743,42 +743,28 @@ test("inbox filters ignore an older response and repeated taps mark an unread up
   await act(async()=>read.resolve());await act(async()=>tree.unmount());
 });
 
-test('account personal information starts closed and preserves profile editing, cancellation and saving', async () => {
-  const saved = [], pending = deferred();
-  const profile = { firstName: 'Test', lastName: 'User', email: 'test@example.invalid', phone: '+15550000', city: 'Chicago', countryCode: 'US' };
-  const user = { id: 'fixture', ...profile };
+test('account personal information starts closed and edit opens a separate page', async () => {
+  const pushes = [], profile = { firstName: 'Test', lastName: 'User', email: 'test@example.invalid', city: 'Chicago' };
+  const session = { user: { id: 'fixture', ...profile }, profile };
   const Account = screen('AccountScreen', {
+    'expo-router': { useRouter: () => ({ push: path => pushes.push(path) }) },
     '@/src/components/PersonaSwitcher': { PersonaSwitcher: 'PersonaSwitcher' },
     '@/src/components/AppUpdatesPanel': { AppUpdatesPanel: 'AppUpdatesPanel' },
     '@/src/components/ProfilePhotoEditor': { ProfilePhotoEditor: 'PhotoEditor' },
-    '@/src/components/ProfileLocationPicker': { ProfileLocationPicker: 'LocationPicker' },
     '@/src/lib/mobile-push': { getPushRegistration: async () => null },
-    '@/src/store/session-context': { useSession: () => ({ user, profile, updateProfile: async value => { saved.push(value); await pending.promise; } }) },
+    '@/src/store/session-context': { useSession: () => session },
   });
   let tree; await act(async () => { tree = create(React.createElement(Account)); });
   const toggle = () => tree.root.findByProps({ accessibilityLabel: 'Personal information' });
-  const button = label => tree.root.findAllByType('Button').find(node => node.props.label === label);
   assert.equal(toggle().props.accessibilityState.expanded, false);
-  assert.equal(button('Edit profile'), undefined);
   await act(async () => toggle().props.onPress());
-  assert.equal(toggle().props.accessibilityState.expanded, true);
-  await act(async () => button('Edit profile').props.onPress());
-  await act(async () => tree.root.findByProps({ accessibilityLabel: 'First name' }).props.onChangeText('Changed'));
-  await act(async () => button('Cancel').props.onPress());
-  await act(async () => button('Edit profile').props.onPress());
-  assert.equal(tree.root.findByProps({ accessibilityLabel: 'First name' }).props.value, 'Test');
-  await act(async () => tree.root.findByProps({ accessibilityLabel: 'First name' }).props.onChangeText('Saved'));
-  let save; await act(async () => { save = button('Save').props.onPress(); });
-  assert.equal(button('Cancel').props.disabled, true);
-  assert.equal(toggle().props.disabled, true);
-  await act(async () => { pending.resolve(); await save; });
-  assert.equal(saved[0].firstName, 'Saved');
+  await act(async () => tree.root.findAllByType('Button').find(node => node.props.label === 'Edit profile').props.onPress());
+  assert.deepEqual(pushes, ['/edit-profile']);
   assert.equal(tree.root.findAllByProps({ accessibilityLabel: 'First name' }).length, 0);
   await act(async () => toggle().props.onPress());
-  assert.equal(button('Edit profile'), undefined);
+  assert.equal(toggle().props.accessibilityState.expanded, false);
   await act(async () => tree.unmount());
 });
-
 
 test('device notification toggle waits for registration, prevents duplicate requests and retains state on failure', async () => {
   const registration = deferred(), enabling = deferred(); let enables = 0, disables = 0;
@@ -807,5 +793,46 @@ test('device notification toggle waits for registration, prevents duplicate requ
   assert.equal(disables, 1); assert.equal(toggle().props.value, true);
   assert.equal(toggle().props.disabled, false);
   assert(tree.root.findAllByProps({ accessibilityRole: 'alert' }).some(node => node.props.children === 'Permission update failed'));
+  await act(async () => tree.unmount());
+});
+
+test('profile page protects drafts, validates location and returns only after a successful save', async () => {
+  let prevention, fail = true, saves = 0, backs = 0, dispatched, alerts;
+  const pending = deferred(), payloads = [];
+  const profile = { firstName: 'Test', lastName: 'User', phone: '123', city: 'Chicago', stateCode: 'IL', countryCode: 'US' };
+  const session = { user: { id: 'fixture', ...profile }, profile, updateProfile: async payload => { saves++; payloads.push(payload); if (fail) throw Error('Save failed'); await pending.promise; } };
+  const router = { canGoBack: () => true, back: () => { backs++; } };
+  const navigation = { dispatch: action => { dispatched = action; } };
+  const Edit = screen('EditProfileScreen', {
+    'expo-router': { useRouter: () => router, useNavigation: () => navigation },
+    'expo-router/react-navigation': { usePreventRemove: (enabled, callback) => { prevention = { enabled, callback }; } },
+    __native: { Alert: { alert: (...args) => { alerts = args; } } },
+    '@/src/components/ProfileLocationPicker': { ProfileLocationPicker: 'LocationPicker' },
+    '@/src/store/session-context': { useSession: () => session },
+  });
+  let tree; await act(async () => { tree = create(React.createElement(Edit)); });
+  const save = () => tree.root.findByType('Button');
+  const name = () => tree.root.findByProps({ accessibilityLabel: 'First name' });
+  assert.equal(save().props.disabled, true); assert.equal(prevention.enabled, false);
+  await act(async () => name().props.onChangeText('New name'));
+  assert.equal(prevention.enabled, true);
+  const action = { type: 'GO_BACK' }; prevention.callback({ data: { action } });
+  assert.equal(alerts[0], 'Discard changes?');
+  alerts[2][1].onPress(); assert.equal(dispatched, action);
+  const picker = () => tree.root.findByType('LocationPicker');
+  const location = picker().props.value;
+  await act(async () => picker().props.onChange({ ...location, city: '' }, false));
+  assert.equal(save().props.disabled, true);
+  await act(async () => picker().props.onChange(location, true));
+  await act(async () => save().props.onPress());
+  assert.equal(backs, 0); assert.equal(name().props.value, 'New name');
+  assert(tree.root.findAllByProps({ accessibilityRole: 'alert' }).some(node => node.props.children === 'Save failed'));
+  fail = false;
+  await act(async () => { const press = save().props.onPress; press(); press(); });
+  assert.equal(saves, 2); assert.equal(save().props.disabled, true);
+  await act(async () => pending.resolve());
+  assert.equal(backs, 1); assert.equal(prevention.enabled, false);
+  assert.equal(payloads[1].firstName, 'New name');
+  assert.equal('city' in payloads[1], false);
   await act(async () => tree.unmount());
 });

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { requireOptionalNativeModule } from 'expo';
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { AuthButton } from "@/src/components/auth/AuthButton";
@@ -12,14 +13,15 @@ export function AppUpdatesPanel() {
   >("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const inFlight = useRef(false);
   const canUpdate = Platform.OS !== "web" && !__DEV__ && Updates.isEnabled;
   const ready = phase === "ready" || isUpdatePending;
   const busy =
     phase === "checking" || phase === "downloading" || phase === "restarting";
-  const version =
-    Constants.nativeAppVersion || Constants.expoConfig?.version || "—";
-  const build = Constants.nativeBuildVersion;
+  const application = requireOptionalNativeModule<{ nativeApplicationVersion?: string; nativeBuildVersion?: string }>('ExpoApplication');
+  const version = application?.nativeApplicationVersion || Constants.expoConfig?.version || "—";
+  const build = application?.nativeBuildVersion;
 
   async function check() {
     if (inFlight.current || !canUpdate) return;
@@ -104,6 +106,8 @@ export function AppUpdatesPanel() {
         them. New features may require an App Store or Google Play update.
       </Text>
       <Text style={styles.version}>Version {version}{build ? ` · Build ${build}` : ''}</Text>
+      <Text style={styles.version}>Account refresh 2</Text>
+      {Updates.isEmergencyLaunch ? <Text accessibilityRole="alert" style={styles.error}>BookMiz opened its saved version because an update could not start.</Text> : null}
       {status ? (
         <Text
           accessibilityRole={error ? "alert" : undefined}
@@ -119,11 +123,16 @@ export function AppUpdatesPanel() {
         disabled={!canUpdate || busy}
         onPress={ready ? restart : check}
       />
+      <Pressable accessibilityRole="button" accessibilityLabel="Update details" accessibilityState={{ expanded: showDetails }} onPress={() => setShowDetails(value => !value)} style={styles.detailsButton}>
+        <Text style={styles.version}>{showDetails ? 'Hide update details' : 'Show update details'}</Text>
+      </Pressable>
+      {showDetails ? <Text selectable style={styles.version}>Channel: {Updates.channel ?? 'Unavailable'}{'\n'}Runtime: {Updates.runtimeVersion ?? 'Unavailable'}{'\n'}Update: {Updates.updateId ?? 'Bundled version'}{'\n'}Source: {Updates.isEmbeddedLaunch ? 'Installed app' : 'Downloaded update'}{Updates.isEmergencyLaunch ? `\nRecovery: ${Updates.emergencyLaunchReason ?? 'Startup failed'}` : ''}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  detailsButton: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   section: { paddingVertical: 8, gap: 12 },
   title: {
     fontFamily: tokens.font.semibold,

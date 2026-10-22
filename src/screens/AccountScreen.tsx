@@ -1,12 +1,11 @@
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   Pressable,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -14,9 +13,7 @@ import { AuthButton } from "@/src/components/auth/AuthButton";
 import { PersonaSwitcher } from "@/src/components/PersonaSwitcher";
 import { Screen } from "@/src/components/Screen";
 import { AppUpdatesPanel } from "@/src/components/AppUpdatesPanel";
-import { ProfileLocationPicker } from "@/src/components/ProfileLocationPicker";
 import { ProfilePhotoEditor } from "@/src/components/ProfilePhotoEditor";
-import type { ProfileLocation } from "@/src/lib/api/geography";
 import { getFriendlyApiError } from "@/src/lib/api/error-display";
 import type { NotificationPreferences } from "@/src/lib/api/types";
 import { useSession } from "@/src/store/session-context";
@@ -127,30 +124,12 @@ export function AccountScreen() {
   const session = useSession();
   const user = session.user;
   const profile = session.profile;
-  const [firstName, setFirstName] = useState(
-    profile?.firstName ?? user?.firstName ?? "",
-  );
-  const [lastName, setLastName] = useState(
-    profile?.lastName ?? user?.lastName ?? "",
-  );
-  const [phone, setPhone] = useState(profile?.phone ?? "");
-  const [locationDraft, setLocationDraft] = useState<ProfileLocation>({
-    city: profile?.city ?? user?.city ?? "",
-    stateCode: profile?.stateCode ?? user?.stateCode ?? "",
-    countryCode: profile?.countryCode ?? "",
-    homeLatitude: profile?.homeLatitude ?? null,
-    homeLongitude: profile?.homeLongitude ?? null,
-  });
-  const [locationChanged, setLocationChanged] = useState(false);
-  const [locationValid, setLocationValid] = useState(true);
   const [notificationState, setNotificationState] =
     useState<NotificationPreferences | null>(
       profile?.notificationPreferences ?? null,
     );
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [personalInfoExpanded, setPersonalInfoExpanded] = useState(false);
   const [isEditingNotifications, setIsEditingNotifications] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -173,23 +152,9 @@ export function AccountScreen() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (isEditingProfile) return;
-    setFirstName(profile?.firstName ?? user?.firstName ?? "");
-    setLastName(profile?.lastName ?? user?.lastName ?? "");
-    setPhone(profile?.phone ?? "");
-    setLocationDraft({ city: profile?.city ?? user?.city ?? "", stateCode: profile?.stateCode ?? user?.stateCode ?? "", countryCode: profile?.countryCode ?? "", homeLatitude: profile?.homeLatitude ?? null, homeLongitude: profile?.homeLongitude ?? null });
-    setLocationChanged(false);
-    setLocationValid(true);
-  }, [profile, user, isEditingProfile]);
-  useEffect(() => {
     if (!isEditingNotifications)
       setNotificationState(profile?.notificationPreferences ?? null);
   }, [profile?.notificationPreferences, isEditingNotifications]);
-
-  const canSaveProfile = useMemo(
-    () => firstName.trim().length > 0 && lastName.trim().length > 0 && locationValid,
-    [firstName, lastName, locationValid],
-  );
 
   const fullName = [
     profile?.firstName ?? user?.firstName,
@@ -244,8 +209,7 @@ export function AccountScreen() {
 
       <View style={styles.personalCard}>
         <Pressable accessibilityRole="button" accessibilityLabel="Personal information"
-          accessibilityState={{ expanded: personalInfoExpanded || isEditingProfile, disabled: isEditingProfile }}
-          disabled={isEditingProfile}
+          accessibilityState={{ expanded: personalInfoExpanded }}
           onPress={() => setPersonalInfoExpanded((expanded) => !expanded)}
           style={({ pressed }) => [styles.personalHeading, pressed && styles.rowPressed]}>
           <View style={styles.personalIcon}><FontAwesome6 name="address-card" size={19} color={tokens.colors.ink} /></View>
@@ -253,9 +217,9 @@ export function AccountScreen() {
             <Text style={styles.editorTitle} accessibilityRole="header">Personal information</Text>
             <Text style={styles.detailLabel}>Contact details & home location</Text>
           </View>
-          <FontAwesome6 name={personalInfoExpanded || isEditingProfile ? "chevron-up" : "chevron-down"} size={13} color={tokens.colors.muted} />
+          <FontAwesome6 name={personalInfoExpanded ? "chevron-up" : "chevron-down"} size={13} color={tokens.colors.muted} />
         </Pressable>
-        {personalInfoExpanded && !isEditingProfile ? <View style={styles.personalDetails}>
+        {personalInfoExpanded ? <View style={styles.personalDetails}>
         {[
           { label: "Email", icon: "envelope" as IconName, value: email || "Not provided" },
           { label: "Phone", icon: "phone" as IconName, value: profile?.phone || "Add a phone number" },
@@ -272,96 +236,9 @@ export function AccountScreen() {
           </View>
         ))}
         <AuthButton label="Edit profile" icon="pen-to-square" variant="secondary"
-          onPress={() => setIsEditingProfile(true)} />
+          onPress={() => router.push("/edit-profile" as never)} />
         </View> : null}
 
-      {isEditingProfile ? (
-        <View style={styles.personalEditor}>
-          <Text style={styles.editorTitle}>Edit profile</Text>
-
-          <View style={styles.fieldRow}>
-            <View style={styles.column}>
-              <Text style={styles.fieldLabel}>First name</Text>
-              <TextInput
-                value={firstName}
-                onChangeText={setFirstName}
-                style={styles.fieldInput}
-                placeholder="First name"
-                placeholderTextColor={tokens.colors.mutedSoft}
-                accessibilityLabel="First name"
-              />
-            </View>
-            <View style={styles.column}>
-              <Text style={styles.fieldLabel}>Last name</Text>
-              <TextInput
-                value={lastName}
-                onChangeText={setLastName}
-                style={styles.fieldInput}
-                placeholder="Last name"
-                placeholderTextColor={tokens.colors.mutedSoft}
-                accessibilityLabel="Last name"
-              />
-            </View>
-          </View>
-
-          <View style={styles.column}>
-            <Text style={styles.fieldLabel}>Phone</Text>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              style={styles.fieldInput}
-              placeholder="+1 (555) 555-0101"
-              placeholderTextColor={tokens.colors.mutedSoft}
-              keyboardType="phone-pad"
-              accessibilityLabel="Phone"
-            />
-          </View>
-
-          <ProfileLocationPicker value={locationDraft} onChange={(value, valid) => {
-            setLocationDraft(value);
-            setLocationChanged(true);
-            setLocationValid(valid);
-          }} />
-          {!locationValid ? <Text style={styles.detailLabel}>Choose a country, state or region, and city to finish changing your location.</Text> : null}
-
-          <View style={styles.editorActions}>
-            <AuthButton
-              label="Cancel"
-              variant="secondary"
-              disabled={isSavingProfile}
-              style={styles.editorActionButton}
-              onPress={() => setIsEditingProfile(false)}
-            />
-            <AuthButton
-              label="Save"
-              style={styles.editorActionButton}
-              loading={isSavingProfile}
-              disabled={!canSaveProfile || isSavingProfile}
-              onPress={async () => {
-                try {
-                  setError(null);
-                  setIsSavingProfile(true);
-                  await session.updateProfile({
-                    firstName: firstName.trim(),
-                    lastName: lastName.trim(),
-                    phone: phone.trim() || undefined,
-                    ...(locationChanged ? locationDraft : {}),
-                  });
-                  setIsEditingProfile(false);
-                } catch (nextError) {
-                  const message = getFriendlyApiError(
-                    nextError,
-                    "We could not save your profile.",
-                  );
-                  setError(message);
-                } finally {
-                  setIsSavingProfile(false);
-                }
-              }}
-            />
-          </View>
-        </View>
-      ) : null}
       </View>
 
       <View style={styles.group}>
