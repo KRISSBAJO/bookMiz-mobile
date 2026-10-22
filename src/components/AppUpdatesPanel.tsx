@@ -19,6 +19,7 @@ export function AppUpdatesPanel() {
     phase === "checking" || phase === "downloading" || phase === "restarting";
   const version =
     Constants.nativeAppVersion || Constants.expoConfig?.version || "—";
+  const build = Constants.nativeBuildVersion;
 
   async function check() {
     if (inFlight.current || !canUpdate) return;
@@ -102,7 +103,7 @@ export function AppUpdatesPanel() {
         Small improvements download securely. Restart when you’re ready to apply
         them. New features may require an App Store or Google Play update.
       </Text>
-      <Text style={styles.version}>Version {version}</Text>
+      <Text style={styles.version}>Version {version}{build ? ` · Build ${build}` : ''}</Text>
       {status ? (
         <Text
           accessibilityRole={error ? "alert" : undefined}

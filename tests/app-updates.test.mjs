@@ -36,7 +36,7 @@ function fixture(options = {}) {
     },
     "expo-constants": {
       __esModule: true,
-      default: { nativeAppVersion: "1.0.0" },
+      default: { nativeAppVersion: "1.0.0", nativeBuildVersion: "4" },
     },
     "expo-updates": updates,
     "@/src/components/auth/AuthButton": {
@@ -84,6 +84,7 @@ test("no compatible update reports its scope and never downloads or restarts", a
   await act(async () => {
     tree = f.render();
   });
+  assert.match(text(tree), /Build 4/);
   await act(async () => {
     await button(tree).props.onPress();
   });

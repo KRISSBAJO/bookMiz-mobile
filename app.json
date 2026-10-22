@@ -22,7 +22,7 @@
         "backgroundColor": "#132849"
       },
       "package": "com.bookmiz.customeragent",
-      "versionCode": 3,
+      "versionCode": 4,
       "predictiveBackGestureEnabled": false
     },
     "web": {
