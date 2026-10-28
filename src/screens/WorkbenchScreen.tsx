@@ -57,6 +57,7 @@ import {
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
 import { useSavedDraft } from "@/src/lib/use-saved-draft";
+import { localRequestDate, requestScheduleError } from "@/src/lib/request-schedule";
 
 const quoteFilters = [
   { id: "ALL", label: "All" },
@@ -262,6 +263,10 @@ function CustomerWorkbenchScreen() {
     session.profile?.countryCode ?? "US",
   );
   const [searchRadiusMiles, setSearchRadiusMiles] = useState("15");
+  const composerScroll = useRef<ScrollView>(null);
+  const fieldOffsets = useRef<Record<string, number>>({});
+  const pendingField = useRef<string | null>(null);
+  const [validationAttempted, setValidationAttempted] = useState(false);
   const [desiredDate, setDesiredDate] = useState("");
   const [desiredWindowStart, setDesiredWindowStart] = useState("");
   const [desiredWindowEnd, setDesiredWindowEnd] = useState("");
@@ -577,7 +582,7 @@ function CustomerWorkbenchScreen() {
     );
   }, []);
 
-  const canContinueFromRequest = useMemo(() => {
+  const requestDetailsValid = useMemo(() => {
     if (!(serviceName.trim().length >= 3 && description.trim().length >= 12)) {
       return false;
     }
@@ -640,23 +645,48 @@ function CustomerWorkbenchScreen() {
     (!budgetMin.trim() ||
       !budgetMax.trim() ||
       Number(budgetMin) <= Number(budgetMax));
-  const timeWindowValid =
-    (!desiredWindowStart && !desiredWindowEnd) ||
-    Boolean(
-      desiredWindowStart &&
-      desiredWindowEnd &&
-      desiredWindowStart < desiredWindowEnd,
-    );
-  const dateValid =
-    !desiredDate ||
-    (/^\d{4}-\d{2}-\d{2}$/.test(desiredDate) &&
-      new Date(`${desiredDate}T23:59:59`).getTime() >= Date.now());
+  const scheduleError = requestScheduleError(desiredDate, desiredWindowStart, desiredWindowEnd);
+  const requestValidationError = scheduleError || (!budgetValid
+    ? "Enter a valid budget with the maximum at least as much as the minimum."
+    : !requestDetailsValid ? "Complete the service, description and required request details."
+    : !canContinueFromLocation || !/^[A-Za-z]{2}$/.test(countryCode.trim())
+      ? "Enter a city and a two-letter country code."
+      : !/^[A-Z]{3}$/.test(currencyCode) ? "Choose a valid request currency." : null);
+  const canContinueFromRequest = requestDetailsValid && budgetValid && !scheduleError;
+  const missingIntake = intakeFields.find(field => {
+    if (!field.required) return false;
+    const value = intakeAnswers[field.id];
+    return typeof value !== "boolean" && (Array.isArray(value) ? !value.length : typeof value !== "string" || !value.trim());
+  });
+  const requestIssue = serviceName.trim().length < 3 ? {field:"service", message:"Enter a service name with at least 3 characters."}
+    : description.trim().length < 12 ? {field:"description", message:"Describe your request in at least 12 characters."}
+    : !/^[A-Z]{3}$/.test(currencyCode) ? {field:"currency", message:"Enter a 3-letter currency code, such as USD or NGN."}
+    : !budgetValid ? {field:"budget", message:"Enter a valid budget with the maximum at least as much as the minimum."}
+    : activeTemplate?.requiresDate && !desiredDate ? {field:"date", message:"Choose your preferred date."}
+    : activeTemplate?.requiresTimeWindow && (!desiredWindowStart || !desiredWindowEnd) ? {field:"time", message:"Choose both an earliest and a latest time."}
+    : scheduleError ? {field: scheduleError.includes("date") ? "date" : "time", message:scheduleError}
+    : missingIntake ? {field:missingIntake.id, message:`Complete ${missingIntake.label}.`} : null;
+  const locationIssue = city.trim().length < 2 ? {field:"city",message:"Enter the city where you need the service."}
+    : !/^[A-Za-z]{2}$/.test(countryCode.trim()) ? {field:"country",message:"Enter a two-letter country code, such as US or NG."} : null;
+  const recordField = (field: string) => (event: {nativeEvent:{layout:{y:number}}}) => {
+    fieldOffsets.current[field] = event.nativeEvent.layout.y;
+    if (pendingField.current === field) {
+      composerScroll.current?.scrollTo({y:Math.max(0, event.nativeEvent.layout.y - 20), animated:true});
+      pendingField.current = null;
+    }
+  };
+  const showIssue = useCallback((issue: {field:string;message:string}, step: ComposerStepId) => {
+    pendingField.current = issue.field;
+    setValidationAttempted(true);
+    setError(issue.message);
+    setComposerStep(step);
+    composerScroll.current?.scrollTo({y:Math.max(0,(fieldOffsets.current[issue.field] ?? 0)-20),animated:true});
+  }, []);
   const canSubmitRequest =
     canContinueFromRequest &&
     canContinueFromLocation &&
     budgetValid &&
-    timeWindowValid &&
-    dateValid &&
+    !scheduleError &&
     /^[A-Za-z]{2}$/.test(countryCode.trim()) &&
     /^[A-Z]{3}$/.test(currencyCode);
 
@@ -693,6 +723,8 @@ function CustomerWorkbenchScreen() {
   ]);
 
   const openComposer = useCallback((nextTemplateId?: string) => {
+    setValidationAttempted(false);
+    setError(null);
     if (nextTemplateId) {
       setTemplateId(nextTemplateId);
     }
@@ -731,7 +763,7 @@ function CustomerWorkbenchScreen() {
   const applyPickerValue = useCallback(
     (field: PickerField, selectedValue: Date) => {
       if (field === "desiredDate") {
-        setDesiredDate(selectedValue.toISOString().slice(0, 10));
+        setDesiredDate(localRequestDate(selectedValue));
         return;
       }
 
@@ -1049,15 +1081,22 @@ function CustomerWorkbenchScreen() {
     composerStep === "request" ? (
       <AuthButton
         label="Continue"
-        disabled={!canContinueFromRequest}
-        onPress={() => setComposerStep("location")}
+        onPress={() => {
+          if (requestIssue) { showIssue(requestIssue, "request"); return; }
+          setError(null); setValidationAttempted(false); setComposerStep("location");
+          composerScroll.current?.scrollTo({y:0,animated:false});
+        }}
         style={styles.footerPrimary}
       />
     ) : composerStep === "location" ? (
       <AuthButton
         label="Review"
-        disabled={!canContinueFromLocation}
-        onPress={() => setComposerStep("review")}
+        onPress={() => {
+          if (requestIssue) { showIssue(requestIssue, "request"); return; }
+          if (locationIssue) { showIssue(locationIssue, "location"); return; }
+          setError(null); setValidationAttempted(false); setComposerStep("review");
+          composerScroll.current?.scrollTo({y:0,animated:false});
+        }}
         style={styles.footerPrimary}
       />
     ) : (
@@ -1386,6 +1425,7 @@ function CustomerWorkbenchScreen() {
                 </View>
 
                 <ScrollView
+                  ref={composerScroll}
                   style={styles.modalScroll}
                   contentContainerStyle={styles.modalContent}
                   showsVerticalScrollIndicator={false}
@@ -1433,7 +1473,7 @@ function CustomerWorkbenchScreen() {
                         ) : null}
                       </View>
 
-                      <AuthField
+                      <View onLayout={recordField("currency")}><AuthField
                         label="Budget currency"
                         placeholder="USD, NGN, GBP…"
                         value={currencyCode}
@@ -1441,28 +1481,24 @@ function CustomerWorkbenchScreen() {
                           setCurrencyCode(value.toUpperCase().slice(0, 3))
                         }
                         autoComplete="off"
-                      />
-                      {!budgetValid ||
-                      !timeWindowValid ||
-                      !dateValid ||
-                      !/^[A-Z]{3}$/.test(currencyCode) ? (
+                      />{validationAttempted && requestIssue?.field === "currency" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}</View>
+                      {!/^[A-Z]{3}$/.test(currencyCode) ? (
                         <Text
                           accessibilityRole="alert"
                           style={styles.errorText}
                         >
-                          Use a valid budget range and 3-letter currency, a
-                          current/future date, and a start/end time in order.
+                          Enter a 3-letter currency code, such as USD or NGN.
                         </Text>
                       ) : null}
-                      <AuthField
+                      <View onLayout={recordField("service")}><AuthField
                         label="Service"
                         placeholder="What do you need?"
                         value={serviceName}
                         onChangeText={setServiceName}
                         autoComplete="off"
-                      />
+                      />{validationAttempted && requestIssue?.field === "service" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}</View>
 
-                      <View style={styles.fieldGroup}>
+                      <View style={styles.fieldGroup} onLayout={recordField("description")}>
                         <Text style={styles.fieldLabel}>Details</Text>
                         <TextInput
                           value={description}
@@ -1474,18 +1510,19 @@ function CustomerWorkbenchScreen() {
                           textAlignVertical="top"
                           accessibilityLabel="Details"
                         />
+                        {validationAttempted && requestIssue?.field === "description" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}
                       </View>
 
-                      <AuthField
-                        label="Budget from ($)"
+                      <View onLayout={recordField("budget")}><AuthField
+                        label={`Budget from (${currencyCode})`}
                         placeholder="Optional"
                         value={budgetMin}
                         onChangeText={setBudgetMin}
                         keyboardType="number-pad"
                         autoComplete="off"
-                      />
+                      />{validationAttempted && requestIssue?.field === "budget" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}</View>
                       <AuthField
-                        label="Budget up to ($)"
+                        label={`Budget up to (${currencyCode})`}
                         placeholder="Optional"
                         value={budgetMax}
                         onChangeText={setBudgetMax}
@@ -1493,11 +1530,12 @@ function CustomerWorkbenchScreen() {
                         autoComplete="off"
                       />
 
-                      <View style={styles.fieldGroup}>
+                      <View style={styles.fieldGroup} onLayout={recordField("date")}>
                         <Text style={styles.fieldLabel}>
                           Preferred date
                           {activeTemplate?.requiresDate ? "" : " (optional)"}
                         </Text>
+                        {validationAttempted && requestIssue?.field === "date" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}
                         <Pressable
                           style={styles.pickerField}
                           accessibilityRole="button"
@@ -1523,8 +1561,9 @@ function CustomerWorkbenchScreen() {
                         </Pressable>
                       </View>
 
-                      <View style={styles.fieldGroup}>
+                      <View style={styles.fieldGroup} onLayout={recordField("time")}>
                         <Text style={styles.fieldLabel}>Earliest time</Text>
+                        {validationAttempted && requestIssue?.field === "time" ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}
                         <Pressable
                           style={styles.pickerField}
                           accessibilityRole="button"
@@ -1579,6 +1618,10 @@ function CustomerWorkbenchScreen() {
                         </Pressable>
                       </View>
 
+                      {scheduleError ? (
+                        <Text accessibilityRole="alert" style={styles.errorText}>{scheduleError}</Text>
+                      ) : null}
+
                       {intakeFields.map((field) => {
                         const fieldValue = intakeAnswers[field.id];
                         const stringValue =
@@ -1593,7 +1636,8 @@ function CustomerWorkbenchScreen() {
 
                         if (field.type === "LONG_TEXT") {
                           return (
-                            <View key={field.id} style={styles.fieldGroup}>
+                            <View key={field.id} style={styles.fieldGroup} onLayout={recordField(field.id)}>
+                              {validationAttempted && requestIssue?.field === field.id ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}
                               <Text style={styles.fieldLabel}>{label}</Text>
                               <TextInput
                                 value={stringValue}
@@ -1664,7 +1708,8 @@ function CustomerWorkbenchScreen() {
                                 });
 
                           return (
-                            <View key={field.id} style={styles.fieldGroup}>
+                            <View key={field.id} style={styles.fieldGroup} onLayout={recordField(field.id)}>
+                              {validationAttempted && requestIssue?.field === field.id ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}
                               <Text style={styles.fieldLabel}>{label}</Text>
                               <View style={styles.chipWrap}>
                                 {options.map((option) => (
@@ -1705,8 +1750,7 @@ function CustomerWorkbenchScreen() {
                         }
 
                         return (
-                          <AuthField
-                            key={field.id}
+                          <View key={field.id} onLayout={recordField(field.id)}><AuthField
                             label={label}
                             placeholder={field.placeholder ?? ""}
                             value={stringValue}
@@ -1715,7 +1759,7 @@ function CustomerWorkbenchScreen() {
                             }
                             helperText={field.helpText ?? undefined}
                             autoComplete="off"
-                          />
+                          />{validationAttempted && requestIssue?.field === field.id ? <Text accessibilityRole="alert" style={styles.errorText}>{requestIssue.message}</Text> : null}</View>
                         );
                       })}
 
@@ -1804,13 +1848,13 @@ function CustomerWorkbenchScreen() {
                         })}
                       </View>
 
-                      <AuthField
+                      <View onLayout={recordField("city")}><AuthField
                         label="City"
                         placeholder="City"
                         value={city}
                         onChangeText={setCity}
                         autoComplete="off"
-                      />
+                      />{validationAttempted && locationIssue?.field === "city" ? <Text accessibilityRole="alert" style={styles.errorText}>{locationIssue.message}</Text> : null}</View>
                       <View style={styles.fieldGroup}>
                         <Text style={styles.fieldLabel}>State</Text>
                         <View style={styles.inputShell}>
@@ -1825,8 +1869,9 @@ function CustomerWorkbenchScreen() {
                           />
                         </View>
                       </View>
-                      <View style={styles.fieldGroup}>
+                      <View style={styles.fieldGroup} onLayout={recordField("country")}>
                         <Text style={styles.fieldLabel}>Country</Text>
+                        {validationAttempted && locationIssue?.field === "country" ? <Text accessibilityRole="alert" style={styles.errorText}>{locationIssue.message}</Text> : null}
                         <View style={styles.inputShell}>
                           <TextInput
                             value={countryCode}
@@ -1946,6 +1991,18 @@ function CustomerWorkbenchScreen() {
                     </>
                   ) : null}
 
+                  {requestValidationError && composerStep === "review" ? (
+                    <View style={styles.errorBox}>
+                      <Text accessibilityRole="alert" style={styles.errorText}>{requestValidationError}</Text>
+                      <AuthButton label="Edit request details" onPress={() => {
+                        const issue = requestIssue || locationIssue;
+                        if (issue) showIssue(issue, requestIssue ? "request" : "location");
+                      }} />
+                    </View>
+                  ) : null}
+                  {!budgetValid && composerStep === "request" ? (
+                    <Text accessibilityRole="alert" style={styles.errorText}>Enter a valid budget with the maximum at least as much as the minimum.</Text>
+                  ) : null}
                   {error ? (
                     <View style={styles.errorBox}>
                       <Text style={styles.errorText} accessibilityRole="alert">

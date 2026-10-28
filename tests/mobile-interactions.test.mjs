@@ -30,14 +30,14 @@ function screen(name, overrides = {}) {
     ActivityIndicator: "ActivityIndicator",
     Keyboard: { dismiss() {} },
     FlatList: React.forwardRef((props, ref) => {
-      React.useImperativeHandle(ref, () => ({ scrollToEnd() {} }));
+      React.useImperativeHandle(ref, () => ({ scrollToEnd() {}, scrollTo() {} }));
       return React.createElement("FlatList", props, props.data?.length ? props.data.map((item, index) => React.createElement(React.Fragment, { key: item.id }, props.renderItem({ item, index }))) : props.ListEmptyComponent);
     }),
     KeyboardAvoidingView: "KeyboardAvoidingView",
     Platform: { OS: overrides.__platform ?? "ios" },
     AppState: { currentState: "active" },
     ScrollView: React.forwardRef((props, ref) => {
-      React.useImperativeHandle(ref, () => ({ scrollToEnd() {} }));
+      React.useImperativeHandle(ref, () => ({ scrollToEnd() {}, scrollTo() {} }));
       return React.createElement("ScrollView", props, props.children);
     }),
     StyleSheet: { create: (value) => value },
@@ -70,6 +70,7 @@ function screen(name, overrides = {}) {
     "expo-status-bar": { StatusBar: "StatusBar" },
     "@/src/lib/mobile-env": { mobileEnv: { webAppUrl: "https://www.bookmiz.com" } },
     "@/src/lib/public-business-links": utility("public-business-links"),
+    "@/src/lib/request-schedule": utility("request-schedule"),
     "@/src/components/Screen": {
       Screen: (props) => React.createElement("Screen", props, props.children),
     },
@@ -363,6 +364,43 @@ test("business profile always opens and shares its BookMiz page, hiding placehol
   assert.equal(opened[0], "https://www.bookmiz.com/marketplace/providers/business");
   await act(async () => { await tree.root.findAllByType("Pressable").find((node) => node.props.accessibilityLabel === "Share Test Studio's business page").props.onPress(); });
   assert.equal(shared[0].url, opened[0]);
+  await act(async () => tree.unmount());
+});
+
+test("request composer explains an invalid time range before review and enables sending once corrected", async () => {
+  let restoreDraft;
+  let sends = 0;
+  const draft = { serviceName: 'Laser Remover', description: 'Want to remove dark spots', city: 'Chicago', countryCode: 'US', desiredWindowStart: '15:47', desiredWindowEnd: '13:47', budgetMin: '200', budgetMax: '300', currencyCode: 'USD' };
+  const Workbench = screen('WorkbenchScreen', {
+    '@/src/store/session-context': { useSession: () => ({ activePersona: 'customer', user: { id: 'customer', email: 'fixture@example.invalid' }, profile: {} }) },
+    '@/src/lib/use-saved-draft': { useSavedDraft: (_key, _value, restore) => {
+      restoreDraft = restore;
+      React.useEffect(() => { restore(draft); }, []);
+      return { draftError: null, clearDraft: async () => {} };
+    } },
+    '@/src/lib/api/marketplace': { listMarketplaceRequestTemplates: async () => [], listCustomerQuoteRequests: async () => [], createServiceRequest: async () => { sends++; return {}; } },
+    '@/src/lib/marketplace-display': { formatMarketplaceDistance: () => '', formatMarketplacePrice: () => '' },
+    '@/src/lib/service-request-utils': utility('service-request-utils'),
+  });
+  let tree;
+  await act(async () => { tree = create(React.createElement(Workbench)); });
+  await press(tree.root, 'Start a request');
+  const button = (label) => tree.root.findAllByType('Button').find(node => node.props.label === label);
+  await press(tree.root, 'Continue');
+  assert.ok(button('Continue'), 'invalid timing must stay on details');
+  assert.ok(labels(tree.root).some(text => text.includes('Latest time must be after earliest time')));
+  assert.equal(sends, 0);
+  await act(async () => { restoreDraft({ ...draft, desiredWindowEnd: '17:47' }); });
+  await press(tree.root, 'Continue');
+  assert.ok(button('Review'));
+  await press(tree.root, 'Review');
+  assert.equal(button('Send request').props.disabled, false);
+  await act(async () => { restoreDraft(draft); });
+  assert.equal(button('Send request').props.disabled, true);
+  assert.ok(button('Edit request details'));
+  await press(tree.root, 'Edit request details');
+  assert.ok(button('Continue'));
+  assert.equal(sends, 0);
   await act(async () => tree.unmount());
 });
 
