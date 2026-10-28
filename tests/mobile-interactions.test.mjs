@@ -406,12 +406,12 @@ test("request composer explains an invalid time range before review and enables 
 });
 
 test('requests open a separate detail route and chat attachments retain failed sends for retry', async () => {
- const routes=[],sent=[],opened=[];let attempts=0;
+ const routes=[],sent=[],opened=[];let attempts=0,routeParams={};
  const file={id:'file',fileName:'estimate.pdf',mimeType:'application/pdf',sizeBytes:123};
  const conversation={id:'thread',quoteRequestId:'request',quoteMatchId:'match',provider:{displayName:'Studio'},status:'OPEN',messages:[{id:'message',senderRole:'PROVIDER',content:'Your estimate',createdAt:new Date().toISOString(),metadata:{attachments:[file]}}]};
  const request={id:'request',requestedServiceName:'Laser Remover',city:'Chicago',status:'MATCHED',conversations:[conversation],matches:[{id:'match',status:'UNLOCKED',provider:{displayName:'Studio'}}]};
  const Workbench=screen('WorkbenchScreen',{
-  'expo-router':{useRouter:()=>({push:path=>routes.push(path),back(){},replace(){},setParams(){}}),useLocalSearchParams:()=>({})},
+  'expo-router':{useRouter:()=>({push:path=>{routes.push(path);routeParams={requestId:'request'};},back(){},replace(){},setParams(){}}),useLocalSearchParams:()=>routeParams},
   '@/src/store/session-context':{useSession:()=>({activePersona:'customer',user:{id:'customer'},profile:{}})},
   '@/src/lib/api/marketplace':{listMarketplaceRequestTemplates:async()=>[],listCustomerQuoteRequests:async()=>[request]},
   '@/src/lib/marketplace-display':{formatMarketplaceDistance:()=>'',formatMarketplacePrice:()=>''},
@@ -423,6 +423,7 @@ test('requests open a separate detail route and chat attachments retain failed s
  const row=tree.root.findAllByType('Pressable').find(node=>labels(node).includes('Laser Remover'));
  await act(async()=>row.props.onPress());assert.equal(routes[0],'/requests/request');
  await act(async()=>tree.update(React.createElement(Workbench,{requestId:'request'})));
+ assert.equal(routes.length,1,'a detail route must not push itself again or clear its dynamic request id');
  assert.equal(tree.root.findByType('Screen').props.showBack,true);
  await press(tree.root,'Open chat');
  const action=label=>tree.root.findAllByType('Pressable').find(node=>node.props.accessibilityLabel===label);

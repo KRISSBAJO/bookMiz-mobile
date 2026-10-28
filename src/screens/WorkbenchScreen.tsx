@@ -438,11 +438,11 @@ function CustomerWorkbenchScreen({ requestId }: { requestId?: string }) {
 
   const requestTemplates = templates.length > 0 ? templates : fallbackTemplates;
   useEffect(() => {
-    if (params.requestId && requests.some((item) => item.id === params.requestId)) {
+    if (!requestId && params.requestId && requests.some((item) => item.id === params.requestId)) {
       router.push(`/requests/${encodeURIComponent(params.requestId)}` as Href);
       router.setParams({ requestId: undefined });
     }
-  }, [params.requestId, requests, router]);
+  }, [params.requestId, requests, router, requestId]);
 
   const selectedRequest = useMemo(
     () =>
