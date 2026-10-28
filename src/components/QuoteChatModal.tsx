@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { FontAwesome6 } from "@expo/vector-icons";
 import type { CustomerQuoteConversation, CustomerQuoteMessage } from "@/src/lib/api/types";
 import { tokens } from "@/src/theme/tokens";
+import { pickQuoteAttachment, sendQuoteAttachment, openQuoteAttachment, type QuoteAttachmentUpload } from '@/src/lib/quote-attachments';
 
 function dayLabel(value: string) {
   const date = new Date(value);
@@ -25,6 +26,13 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
   const list = useRef<FlatList<CustomerQuoteMessage>>(null);
   const nearBottom = useRef(true);
   const [newBelow, setNewBelow] = useState(false);
+  const [attachment, setAttachment] = useState<QuoteAttachmentUpload | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
+  const fileBusyRef = useRef(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const current = useRef({id:conversation.id,draft,visible});
+  current.current = {id:conversation.id,draft,visible};
+  useEffect(() => {setAttachment(null);setFileError(null);},[conversation.id,visible]);
   const providerName = headingName || conversation.provider?.displayName || "Your provider";
   const closed = conversation.status === "ARCHIVED";
   const lastId = conversation.messages.at(-1)?.id;
@@ -32,7 +40,28 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
   useEffect(() => { if (!nearBottom.current) setNewBelow(true); }, [lastId]);
   const scrollToLatest = () => { nearBottom.current = true; setNewBelow(false); list.current?.scrollToEnd({ animated: true }); };
   const close = () => { Keyboard.dismiss(); onClose(); };
-  const canSend = Boolean(draft.trim()) && !sending && !closed;
+  const canSend = Boolean(draft.trim() || attachment) && !sending && !fileBusy && !closed;
+  const attach = async () => {
+    if (fileBusyRef.current || sending || closed) return;
+    fileBusyRef.current = true;setFileBusy(true);setFileError(null);
+    const id = conversation.id;
+    try { const next = await pickQuoteAttachment(); if (current.current.id === id && current.current.visible && next) setAttachment(next); }
+    catch(error) { setFileError(error instanceof Error ? error.message : 'Could not attach this file.'); }
+    finally {fileBusyRef.current = false;setFileBusy(false);}
+  };
+  const send = async () => {
+    if (!canSend || fileBusyRef.current) return;
+    nearBottom.current = true;
+    if (!attachment) {onSend();return;}
+    fileBusyRef.current = true;setFileBusy(true);setFileError(null);
+    const id = conversation.id, caption = draft;
+    try {
+      await sendQuoteAttachment(conversation,ownRole,attachment,caption);
+      if (current.current.id === id) {setAttachment(null);if (current.current.draft === caption) onDraftChange('');}
+      onRefresh();
+    } catch(error) {if (current.current.id === id) setFileError(error instanceof Error ? error.message : 'File was not sent. Please try again.');}
+    finally {fileBusyRef.current = false;setFileBusy(false);}
+  };
 
   return <Modal visible={visible} animationType="slide" onRequestClose={close}>
     <SafeAreaView style={styles.safe}>
@@ -65,6 +94,9 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
                 {item.senderRole === "PLATFORM" ? <View style={styles.system}><FontAwesome6 name="circle-info" size={12} color={tokens.colors.muted} /><Text style={styles.systemText}>{item.content}</Text></View> : <View style={[styles.messageRow, own && styles.messageOwn]}>
                   <View style={[styles.bubble, own ? styles.bubbleOwn : styles.bubbleOther]}>
                     <Text selectable style={[styles.messageText, own && styles.messageTextOwn]}>{item.content}</Text>
+                    {item.metadata?.attachments?.map(file => <Pressable key={file.id} accessibilityRole="button" accessibilityLabel={`Open attachment ${file.fileName}`} style={styles.fileCard} onPress={() => {void openQuoteAttachment(conversation.id,item.id,file).catch(error => setFileError(error instanceof Error ? error.message : 'Could not open the file.'));}}>
+                      <FontAwesome6 name="file-arrow-down" size={18} color={own ? '#ffffff' : tokens.colors.ink}/><View style={{flex:1}}><Text style={[styles.messageText, own && styles.messageTextOwn]} numberOfLines={2}>{file.fileName}</Text><Text style={[styles.time, own && styles.timeOwn]}>{Math.ceil(file.sizeBytes / 1024)} KB · Tap to open</Text></View>
+                    </Pressable>)}
                     <View style={styles.timeRow}><Text style={[styles.time, own && styles.timeOwn]}>{timeLabel(item.createdAt)}</Text>{own ? <FontAwesome6 name="check" size={10} color="#cedaeb" accessibilityLabel="Sent" /> : null}</View>
                   </View>
                 </View>}
@@ -72,11 +104,15 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
             }} />
           {newBelow ? <Pressable accessibilityRole="button" accessibilityLabel="Jump to latest messages" style={styles.jump} onPress={scrollToLatest}><Text style={styles.jumpText}>New messages</Text><FontAwesome6 name="arrow-down" size={12} color="#ffffff" /></Pressable> : null}
           <View style={styles.composer}>
+            {fileError ? <Text accessibilityRole="alert" style={styles.errorText}>{fileError}</Text> : null}
+            {!closed ? <Text style={styles.composerHint}>Attach a PDF, image or text file · Up to 5 MB</Text> : null}
+            {attachment ? <View style={styles.fileCard}><FontAwesome6 name="paperclip" size={16} color={tokens.colors.ink}/><Text style={[styles.noticeText,{flex:1}]} numberOfLines={2}>{attachment.fileName}</Text><Pressable accessibilityRole="button" accessibilityLabel="Remove attachment" disabled={fileBusy} onPress={() => setAttachment(null)} style={styles.close}><FontAwesome6 name="xmark" size={16} color={tokens.colors.ink}/></Pressable></View> : null}
             {error ? <View style={styles.errorRow}><FontAwesome6 name="circle-exclamation" size={13} color={tokens.colors.danger} /><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text></View> : null}
             {closed ? <Text style={styles.noticeText}>This conversation is closed. Your messages are still available above.</Text> : <View style={styles.composerRow}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Attach file" disabled={fileBusy || sending} style={styles.close} onPress={() => void attach()}>{fileBusy ? <ActivityIndicator/> : <FontAwesome6 name="paperclip" size={20} color={tokens.colors.ink}/>}</Pressable>
               <TextInput accessibilityLabel="Reply" value={draft} onChangeText={onDraftChange} placeholder="Message your provider…" placeholderTextColor={tokens.colors.muted} style={styles.input} multiline maxLength={4000} textAlignVertical="top" onFocus={scrollToLatest} />
-              <Pressable accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} disabled={!canSend} style={[styles.send, !canSend && styles.sendDisabled]} onPress={() => { nearBottom.current = true; onSend(); }}>
-                {sending ? <ActivityIndicator color={tokens.colors.inkDeep} /> : <FontAwesome6 name="arrow-up" size={18} color={tokens.colors.inkDeep} />}
+              <Pressable accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} disabled={!canSend} style={[styles.send, !canSend && styles.sendDisabled]} onPress={() => void send()}>
+                {sending || fileBusy ? <ActivityIndicator color={tokens.colors.inkDeep} /> : <FontAwesome6 name="arrow-up" size={18} color={tokens.colors.inkDeep} />}
               </Pressable>
             </View>}
             {sending ? <Text accessibilityLiveRegion="polite" style={styles.composerHint}>Sending…</Text> : draft.length > 3600 ? <Text style={styles.composerHint}>{draft.length}/4000</Text> : null}
@@ -88,6 +124,7 @@ export function QuoteChatModal({ visible, conversation, conversations, serviceNa
 }
 
 const styles = StyleSheet.create({
+  fileCard: {flexDirection:'row',alignItems:'center',gap:10,padding:10,borderRadius:12,borderWidth:1,borderColor:'#ccd7e6'},
   safe: { flex: 1, backgroundColor: "#ffffff" }, keyboard: { flex: 1 }, shell: { flex: 1, width: "100%", maxWidth: 840, alignSelf: "center", backgroundColor: "#f3f6fb" },
   header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.colors.border, backgroundColor: "#ffffff" },
   close: { width: 44, height: 44, alignItems: "center", justifyContent: "center" }, avatar: { width: 42, height: 42, borderRadius: 15, backgroundColor: tokens.colors.inkDeep, alignItems: "center", justifyContent: "center" }, avatarText: { color: "#ffffff", fontSize: 14, fontFamily: tokens.font.semibold },

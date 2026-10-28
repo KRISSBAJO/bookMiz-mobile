@@ -887,6 +887,7 @@ export type ProviderBookmarkState = {
 };
 
 export type CustomerQuoteMessage = {
+  metadata?: {attachments?: {id:string;fileName:string;mimeType:string;sizeBytes:number}[]} | null;
   id: string;
   senderRole: "REQUESTER" | "PROVIDER" | "PLATFORM";
   senderName: string;

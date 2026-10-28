@@ -1,7 +1,7 @@
 import { useFocusEffect } from "expo-router/react-navigation";
 import { FontAwesome6 } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -57,7 +57,7 @@ import {
 import { useSession } from "@/src/store/session-context";
 import { tokens } from "@/src/theme/tokens";
 import { useSavedDraft } from "@/src/lib/use-saved-draft";
-import { localRequestDate, requestScheduleError } from "@/src/lib/request-schedule";
+import { localRequestDate, requestScheduleError, requestCalendarDate } from "@/src/lib/request-schedule";
 
 const quoteFilters = [
   { id: "ALL", label: "All" },
@@ -176,7 +176,7 @@ function formatDateLabel(value?: string | null) {
     return "Flexible";
   }
 
-  const date = new Date(value);
+  const date = requestCalendarDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -215,16 +215,16 @@ function getInitials(value: string) {
     .join("");
 }
 
-export function WorkbenchScreen() {
+export function WorkbenchScreen({ requestId }: { requestId?: string } = {}) {
   const session = useSession();
   return session.activePersona === "agent" ? (
     <AgentWorkbenchScreen />
   ) : (
-    <CustomerWorkbenchScreen />
+    <CustomerWorkbenchScreen requestId={requestId} />
   );
 }
 
-function CustomerWorkbenchScreen() {
+function CustomerWorkbenchScreen({ requestId }: { requestId?: string }) {
   const router = useRouter();
   const session = useSession();
   const params = useLocalSearchParams<{
@@ -439,17 +439,18 @@ function CustomerWorkbenchScreen() {
   const requestTemplates = templates.length > 0 ? templates : fallbackTemplates;
   useEffect(() => {
     if (params.requestId && requests.some((item) => item.id === params.requestId)) {
-      setSelectedRequestId(params.requestId);
+      router.push(`/requests/${encodeURIComponent(params.requestId)}` as Href);
       router.setParams({ requestId: undefined });
     }
   }, [params.requestId, requests, router]);
 
   const selectedRequest = useMemo(
     () =>
+      requestId ? requests.find(request => request.id === requestId) ?? null :
       requests.find((request) => request.id === selectedRequestId) ??
       requests[0] ??
       null,
-    [requests, selectedRequestId],
+    [requests, selectedRequestId, requestId],
   );
 
   useEffect(() => {
@@ -1112,12 +1113,12 @@ function CustomerWorkbenchScreen() {
   return (
     <>
       <Screen
-        title="Requests"
-        showBack={false}
+        title={requestId ? "Request details" : "Requests"}
+        showBack={Boolean(requestId)}
         refreshing={isLoading && requests.length > 0}
         onRefresh={() => void loadWorkspace()}
       >
-        {!showEmpty ? (
+        {!requestId && !showEmpty ? (
           <AuthButton
             label="Start a request"
             icon="plus"
@@ -1144,7 +1145,7 @@ function CustomerWorkbenchScreen() {
           </View>
         ) : null}
 
-        <ScrollView
+        {!requestId ? <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.railScroll}
@@ -1171,11 +1172,11 @@ function CustomerWorkbenchScreen() {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </ScrollView> : null}
 
         {isLoading && requests.length === 0 ? <SkeletonRows /> : null}
 
-        {showEmpty ? (
+        {!requestId && showEmpty ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>
               {filter === "ALL"
@@ -1194,12 +1195,12 @@ function CustomerWorkbenchScreen() {
           </View>
         ) : null}
 
-        {requests.length > 0 ? (
+        {!requestId && requests.length > 0 ? (
           <View style={styles.list}>
             {requests.map((request) => {
-              const isActive = request.id === selectedRequest?.id;
+              const isActive = false;
               const date = request.desiredDate
-                ? new Date(request.desiredDate)
+                ? requestCalendarDate(request.desiredDate)
                 : null;
               const hasDate = !!date && !Number.isNaN(date.getTime());
               return (
@@ -1208,7 +1209,7 @@ function CustomerWorkbenchScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ selected: isActive }}
                   style={[styles.row, isActive ? styles.rowActive : null]}
-                  onPress={() => setSelectedRequestId(request.id)}
+                  onPress={() => router.push(`/requests/${encodeURIComponent(request.id)}` as Href)}
                 >
                   <View style={styles.dateTile}>
                     {hasDate && date ? (
@@ -1241,7 +1242,7 @@ function CustomerWorkbenchScreen() {
                   </View>
                   <StatusPill status={request.status} />
                   <FontAwesome6
-                    name={isActive ? "chevron-down" : "chevron-right"}
+                    name="chevron-right"
                     size={14}
                     color={tokens.colors.mutedSoft}
                   />
@@ -1251,7 +1252,8 @@ function CustomerWorkbenchScreen() {
           </View>
         ) : null}
 
-        {selectedRequest ? (
+        {requestId && !isLoading && !selectedRequest ? <View style={styles.emptyCard}><Text style={styles.emptyTitle}>Request unavailable</Text><Text style={styles.emptyBody}>This request could not be found in your account. Go back to your requests and refresh.</Text></View> : null}
+        {requestId && selectedRequest ? (
           <View style={styles.section}>
             <SectionHeader
               title={selectedRequest.requestedServiceName}
@@ -1263,6 +1265,11 @@ function CustomerWorkbenchScreen() {
                 `${selectedRequest.conversations.length} ${selectedRequest.conversations.length === 1 ? "chat" : "chats"}`,
               ].join(" · ")}
             />
+            <View style={styles.reviewCard}>
+              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Status</Text><StatusPill status={selectedRequest.status}/></View>
+              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Location</Text><Text style={styles.reviewValue}>{[selectedRequest.city, selectedRequest.stateCode, selectedRequest.countryCode].filter(Boolean).join(", ")}</Text></View>
+              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Preferred time</Text><Text style={styles.reviewValue}>{selectedRequest.desiredWindowStart && selectedRequest.desiredWindowEnd ? `${formatTimeLabel(selectedRequest.desiredWindowStart)} – ${formatTimeLabel(selectedRequest.desiredWindowEnd)}` : "Any time"}</Text></View>
+            </View>
             {selectedRequest.description ? (
               <Text style={styles.description}>
                 {selectedRequest.description}

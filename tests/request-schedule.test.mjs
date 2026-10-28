@@ -27,6 +27,7 @@ test('dates reject past days and impossible calendar dates and retain the select
       process.env.TZ = zone;
       assert.equal(api.localRequestDate(new Date(2026,9,29,23,45)), '2026-10-29');
       assert.equal(api.localRequestDate(new Date(2026,9,29,0,15)), '2026-10-29');
+      assert.equal(api.requestCalendarDate('2026-10-29T00:00:00.000Z').getDate(),29);
     }
   } finally { if (original === undefined) delete process.env.TZ; else process.env.TZ = original; }
 });

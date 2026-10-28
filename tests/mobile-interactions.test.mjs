@@ -71,6 +71,7 @@ function screen(name, overrides = {}) {
     "@/src/lib/mobile-env": { mobileEnv: { webAppUrl: "https://www.bookmiz.com" } },
     "@/src/lib/public-business-links": utility("public-business-links"),
     "@/src/lib/request-schedule": utility("request-schedule"),
+    "@/src/lib/quote-attachments": {pickQuoteAttachment:async()=>null,sendQuoteAttachment:async()=>{},openQuoteAttachment:async()=>{}},
     "@/src/components/Screen": {
       Screen: (props) => React.createElement("Screen", props, props.children),
     },
@@ -404,6 +405,35 @@ test("request composer explains an invalid time range before review and enables 
   await act(async () => tree.unmount());
 });
 
+test('requests open a separate detail route and chat attachments retain failed sends for retry', async () => {
+ const routes=[],sent=[],opened=[];let attempts=0;
+ const file={id:'file',fileName:'estimate.pdf',mimeType:'application/pdf',sizeBytes:123};
+ const conversation={id:'thread',quoteRequestId:'request',quoteMatchId:'match',provider:{displayName:'Studio'},status:'OPEN',messages:[{id:'message',senderRole:'PROVIDER',content:'Your estimate',createdAt:new Date().toISOString(),metadata:{attachments:[file]}}]};
+ const request={id:'request',requestedServiceName:'Laser Remover',city:'Chicago',status:'MATCHED',conversations:[conversation],matches:[{id:'match',status:'UNLOCKED',provider:{displayName:'Studio'}}]};
+ const Workbench=screen('WorkbenchScreen',{
+  'expo-router':{useRouter:()=>({push:path=>routes.push(path),back(){},replace(){},setParams(){}}),useLocalSearchParams:()=>({})},
+  '@/src/store/session-context':{useSession:()=>({activePersona:'customer',user:{id:'customer'},profile:{}})},
+  '@/src/lib/api/marketplace':{listMarketplaceRequestTemplates:async()=>[],listCustomerQuoteRequests:async()=>[request]},
+  '@/src/lib/marketplace-display':{formatMarketplaceDistance:()=>'',formatMarketplacePrice:()=>''},
+  '@/src/lib/service-request-utils':utility('service-request-utils'),
+  '@/src/lib/quote-attachments':{pickQuoteAttachment:async()=>({fileName:'photo.png',mimeType:'image/png',contentBase64:'png'}),sendQuoteAttachment:async(...args)=>{sent.push(args);if(++attempts===1)throw Error('Upload failed; try again.');},openQuoteAttachment:async(...args)=>opened.push(args)},
+ });
+ let tree;await act(async()=>{tree=create(React.createElement(Workbench));});
+ assert.equal(tree.root.findAllByType('Button').filter(node=>node.props.label==='Open chat').length,0,'list does not expand details below');
+ const row=tree.root.findAllByType('Pressable').find(node=>labels(node).includes('Laser Remover'));
+ await act(async()=>row.props.onPress());assert.equal(routes[0],'/requests/request');
+ await act(async()=>tree.update(React.createElement(Workbench,{requestId:'request'})));
+ assert.equal(tree.root.findByType('Screen').props.showBack,true);
+ await press(tree.root,'Open chat');
+ const action=label=>tree.root.findAllByType('Pressable').find(node=>node.props.accessibilityLabel===label);
+ await act(async()=>action('Open attachment estimate.pdf').props.onPress());assert.equal(opened[0][0],'thread');assert.equal(opened[0][1],'message');
+ await act(async()=>action('Attach file').props.onPress());assert.ok(labels(tree.root).includes('photo.png'));
+ await act(async()=>action('Send').props.onPress());assert.ok(labels(tree.root).includes('Upload failed; try again.'));assert.ok(labels(tree.root).includes('photo.png'));
+ await act(async()=>action('Send').props.onPress());assert.equal(sent.length,2);assert.equal(sent[1][0].id,'thread');assert.equal(sent[1][1],'REQUESTER');assert.equal(sent[1][2].fileName,'photo.png');assert.equal(labels(tree.root).includes('photo.png'),false);
+ await act(async()=>tree.update(React.createElement(Workbench,{requestId:'foreign-request'})));assert.ok(labels(tree.root).includes('Request unavailable'));
+ await act(async()=>tree.unmount());
+});
+
 test("quote acceptance is offered only for unlocked matches on an active, unselected request", async () => {
   const { canAcceptQuoteMatch } = utility("service-request-utils");
   const request = { id: "request", requestedServiceName: "Haircut", city: "Dallas", status: "MATCHED", conversations: [],
@@ -433,6 +463,7 @@ test("quote acceptance is offered only for unlocked matches on an active, unsele
   });
   let tree;
   await act(async () => { tree = create(React.createElement(Workbench)); });
+  await act(async () => {tree.update(React.createElement(Workbench,{requestId:'request'}));});
   const buttons = () => tree.root.findAllByType("Button").filter((node) => node.props.label === "Accept");
   assert.equal(buttons().length, 1);
   const accept = buttons()[0].props.onPress;
@@ -500,7 +531,7 @@ test("chat opens as a modal, keeps conversation drafts separate and preserves te
   };
   let tree;
   await act(async () => {
-    tree = create(React.createElement(Workbench));
+    tree = create(React.createElement(Workbench,{requestId:'request'}));
   });
   await press(tree.root, "Open chat");
   assert.ok(
